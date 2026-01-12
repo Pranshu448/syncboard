@@ -1,4 +1,4 @@
-const socket = require("../server/socket");
+const socket = require("../socket");
 const Chat = require("../models/Chat");
 const Message = require("../models/Message");
 const mongoose = require("mongoose");

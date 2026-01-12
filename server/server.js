@@ -2,14 +2,14 @@ require("dotenv").config();
 
 const express  = require("express");
 const connectDB = require("./config/db");
-const authRoutes = require("../routes/authRoutes");
-const messageRoutes = require("../routes/messageRoutes");
+const authRoutes = require("./routes/authRoutes");
+const messageRoutes = require("./routes/messageRoutes");
 const http = require("http");
 const {Server} = require("socket.io");
 const socketAuth = require("./middleware/socketAuth");
 const Chat = require("./models/Chat");
 const Message = require("./models/Message");
-const chatRoutes = require("../routes/chatRoutes");
+const chatRoutes = require("./routes/chatRoutes");
 const socket = require("./socket");
 const User = require("./models/User");
 
@@ -59,6 +59,8 @@ app.use("/api/chats", chatRoutes);
 
 
 const onlineUsers = new Set();
+// Store room state: { roomId: { pages: [], strokes: [], activePageIndex: 0 } }
+const roomStates = new Map();
 
 io.on("connection", async (socket) => {
 
@@ -84,14 +86,41 @@ io.on("connection", async (socket) => {
     // ✅ Notify others
     socket.broadcast.emit("user_online", userId);
   
-    /* ---------------- WHITEBOARD ---------------- */
-    socket.on("join_whiteboard", (roomId) => {
-      socket.join(roomId);
-    });
-  
-    socket.on("draw_event", (data) => {
-      socket.to(data.roomId).emit("draw_event", data);
-    });
+/* ---------------- WHITEBOARD ---------------- */
+
+socket.on("join_room", (roomId) => {
+  if (!roomId) return;
+  socket.join(roomId);
+});
+
+// Broadcast stroke events to other clients in the same room
+socket.on("whiteboard:stroke", (data) => {
+  if (!data.roomId || !data.stroke) return;
+  socket.to(data.roomId).emit("whiteboard:stroke", { stroke: data.stroke });
+});
+
+// Broadcast erase events to other clients in the same room
+socket.on("whiteboard:erase_stroke", (data) => {
+  if (!data.roomId || !data.strokeId) return;
+  socket.to(data.roomId).emit("whiteboard:erase_stroke", { strokeId: data.strokeId });
+});
+
+// Broadcast page add events to other clients in the same room
+socket.on("whiteboard:add_page", (data) => {
+  if (!data.roomId || !data.page) return;
+  socket.to(data.roomId).emit("whiteboard:add_page", {
+    page: data.page,
+    activePageIndex: data.activePageIndex,
+  });
+});
+
+// Broadcast page navigation events to other clients in the same room
+socket.on("whiteboard:set_page", (data) => {
+  if (!data.roomId || typeof data.activePageIndex !== "number") return;
+  socket.to(data.roomId).emit("whiteboard:set_page", {
+    activePageIndex: data.activePageIndex,
+  });
+});
   
     /* ---------------- DELIVER PENDING MESSAGES ---------------- */
     try {
