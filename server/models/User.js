@@ -6,11 +6,14 @@ const userSchema = new mongoose.Schema(
       type: String,
       required: true,
       unique: true,
+      trim: true,
     },
     email: {
       type: String,
       required: true,
       unique: true,
+      lowercase: true,
+      trim: true,
     },
     password: {
       type: String,
@@ -20,16 +23,21 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    team: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Team",
+      default: null,
+    },
   },
   { timestamps: true }
 );
 
-userSchema.pre("save", function (next) {
-  if (this.username) {
+// ✅ SAFE pre-save hook (NO next)
+userSchema.pre("save", function () {
+  if (this.isModified("username")) {
     this.username =
       this.username.charAt(0).toUpperCase() + this.username.slice(1);
   }
-  next();
 });
 
 module.exports = mongoose.model("User", userSchema);

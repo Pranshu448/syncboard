@@ -1,11 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import api from "../utils/axios";
 import { useAuth } from "../context/AuthContext";
 import { useSocket } from "../context/SocketContext";
+import { useLocation } from "react-router-dom";
+import { useTheme } from "../context/ThemeContext";
 
 export default function Chat() {
     const { user } = useAuth();
-    const { socket } = useSocket();
+    const  socket = useSocket();
+    const location = useLocation();
+    const { theme } = useTheme();
+    const isDark = theme === "dark";
   
     const myId = String(user?._id || "");
   
@@ -13,6 +18,7 @@ export default function Chat() {
     const [activeChat, setActiveChat] = useState(null);
     const [messages, setMessages] = useState([]);
     const [message, setMessage] = useState("");
+    const messagesEndRef = useRef(null);
   
     /* ================= LOAD CHAT LIST ================= */
     useEffect(() => {
@@ -25,6 +31,17 @@ export default function Chat() {
   
       loadChats();
     }, [user]);
+
+    // When navigated from Teams with a specific chat id, select that chat once list is loaded
+    useEffect(() => {
+      const state = location.state;
+      if (!state || !state.openChatId || chats.length === 0) return;
+
+      const target = chats.find((c) => String(c._id) === String(state.openChatId));
+      if (target) {
+        setActiveChat(target);
+      }
+    }, [location.state, chats]);
   
     /* ================= LOAD MESSAGES ================= */
     useEffect(() => {
@@ -39,6 +56,12 @@ export default function Chat() {
   
       loadMessages();
     }, [activeChat?._id]);
+  
+    /* ================= AUTO-SCROLL TO BOTTOM ON NEW MESSAGES ================= */
+    useEffect(() => {
+      if (!messagesEndRef.current) return;
+      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }, [messages, activeChat?._id]);
   
     /* ================= RECEIVE MESSAGE ================= */
     useEffect(() => {
@@ -83,6 +106,41 @@ export default function Chat() {
       socket.on("receive_message", handleReceive);
       return () => socket.off("receive_message", handleReceive);
     }, [socket, activeChat?._id, myId]);
+
+    /* ================= ONLINE / OFFLINE PRESENCE ================= */
+    useEffect(() => {
+      if (!socket) return;
+
+      const handleUserOnline = (userId) => {
+        setChats((prev) =>
+          prev.map((chat) => ({
+            ...chat,
+            participants: chat.participants?.map((p) =>
+              String(p._id) === String(userId) ? { ...p, isOnline: true } : p
+            ),
+          }))
+        );
+      };
+
+      const handleUserOffline = (userId) => {
+        setChats((prev) =>
+          prev.map((chat) => ({
+            ...chat,
+            participants: chat.participants?.map((p) =>
+              String(p._id) === String(userId) ? { ...p, isOnline: false } : p
+            ),
+          }))
+        );
+      };
+
+      socket.on("user_online", handleUserOnline);
+      socket.on("user_offline", handleUserOffline);
+
+      return () => {
+        socket.off("user_online", handleUserOnline);
+        socket.off("user_offline", handleUserOffline);
+      };
+    }, [socket]);
 
     /* ================= CHAT READ EVENT (Sender receives when receiver opens chat) ================= */
     useEffect(() => {
@@ -208,16 +266,43 @@ export default function Chat() {
   
   
   return (
-    <div style={{ display: "flex", height: "100vh", fontFamily: "Arial" }}>
+    <div
+      style={{
+        display: "flex",
+        height: "100vh",
+        fontFamily:
+          "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+        backgroundColor: isDark ? "#020617" : "#f3f4f6",
+        color: isDark ? "#e5e7eb" : "#0f172a",
+      }}
+    >
       {/* ================= CHAT LIST ================= */}
       <div
         style={{
-          width: "30%",
-          borderRight: "1px solid #ddd",
+          width: 280,
+          borderRight: isDark ? "1px solid #111827" : "1px solid #e5e7eb",
           overflowY: "auto",
+          backgroundColor: isDark ? "#020617" : "#ffffff",
         }}
       >
-        <h3 style={{ padding: "10px", margin: 0 }}>Chats</h3>
+        <div
+          style={{
+            padding: "14px 16px",
+            borderBottom: isDark ? "1px solid #111827" : "1px solid #e5e7eb",
+          }}
+        >
+          <h3 style={{ margin: 0, fontSize: 16 }}>Chats</h3>
+          <p
+            style={{
+              margin: 0,
+              marginTop: 4,
+              fontSize: 11,
+              color: isDark ? "#6b7280" : "#64748b",
+            }}
+          >
+            Direct messages with your team.
+          </p>
+        </div>
   
         {chats.map((chat) => {
 
@@ -236,60 +321,98 @@ export default function Chat() {
   
           return (
             <div
-                key={chat._id}
-                onClick={() => openChat(chat)}
-                style={{
-                    padding: "12px",
-                    cursor: "pointer",
-                    backgroundColor:
-                    activeChat?._id === chat._id ? "#f0f0f0" : "#fff",
-                    borderBottom: "1px solid #eee",
+              key={chat._id}
+              onClick={() => openChat(chat)}
+              style={{
+                padding: "12px 14px",
+                cursor: "pointer",
+                backgroundColor:
+                  activeChat?._id === chat._id
+                    ? isDark
+                      ? "#0b1120"
+                      : "rgba(37,99,235,0.08)"
+                    : "transparent",
+                borderBottom: isDark ? "1px solid #020617" : "1px solid #f1f5f9",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                transition: "background-color 0.15s ease",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div
+                  style={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: 999,
+                    border: isDark
+                      ? "1px solid rgba(148, 163, 184, 0.55)"
+                      : "1px solid rgba(37,99,235,0.25)",
+                    background: isDark
+                      ? "radial-gradient(circle at 30% 0, rgba(99,102,241,0.75), rgba(2,6,23,1))"
+                      : "radial-gradient(circle at 30% 0, rgba(37,99,235,0.25), rgba(34,197,94,0.18))",
                     display: "flex",
-                    justifyContent: "space-between",
                     alignItems: "center",
-                }}
+                    justifyContent: "center",
+                    fontWeight: 800,
+                    color: isDark ? "#e5e7eb" : "#0f172a",
+                    flex: "0 0 auto",
+                  }}
                 >
-                <div>
-
-                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                        <strong>{otherUser?.username}</strong>
-
-                        {otherUser?.isOnline && (
-                            <span
-                            style={{
-                                width: "8px",
-                                height: "8px",
-                                backgroundColor: "#3b82f6",
-                                borderRadius: "50%",
-                            }}
-                            />
-                        )}
-                    </div>
-
-                    <p style={{ margin: "4px 0", fontSize: "13px", color: "#555" }}>
-                        {chat.lastMessage?.content || "No messages yet"}
-                    </p>
+                  {(otherUser?.username || "U")[0]?.toUpperCase()}
                 </div>
-
-                {unread > 0 && (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                  }}
+                >
+                  <strong style={{ fontSize: 14 }}>
+                    {otherUser?.username}
+                  </strong>
+  
+                  {otherUser?.isOnline && (
                     <span
-                    style={{
-                        minWidth: "20px",
-                        height: "20px",
-                        backgroundColor: "#2563eb",
-                        color: "#fff",
+                      style={{
+                        width: 8,
+                        height: 8,
+                        backgroundColor: "#22c55e",
                         borderRadius: "50%",
-                        fontSize: "12px",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                    }}
-                    >
-                {unread}
+                      }}
+                    />
+                  )}
+                </div>
+  
+                <p
+                  style={{
+                    margin: "4px 0 0",
+                    fontSize: 12,
+                    color: isDark ? "#9ca3af" : "#64748b",
+                  }}
+                >
+                  {chat.lastMessage?.content || "No messages yet"}
+                </p>
+              </div>
+  
+              {unread > 0 && (
+                <span
+                  style={{
+                    minWidth: 22,
+                    height: 22,
+                    backgroundColor: "#2563eb",
+                    color: "#fff",
+                    borderRadius: 999,
+                    fontSize: 11,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  {unread}
                 </span>
-                )}
+              )}
             </div>
-
           );
         })}
       </div>
@@ -297,20 +420,80 @@ export default function Chat() {
       {/* ================= CHAT WINDOW ================= */}
       <div
         style={{
-          width: "70%",
+          flex: 1,
           display: "flex",
           flexDirection: "column",
+          backgroundColor: isDark ? "#020617" : "#f3f4f6",
         }}
       >
         {activeChat ? (
           <>
+            {/* HEADER */}
+            <div
+              style={{
+                padding: "12px 18px",
+                borderBottom: isDark ? "1px solid #111827" : "1px solid #e5e7eb",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                backgroundColor: isDark ? "#020617" : "#ffffff",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: "999px",
+                    border: isDark
+                      ? "1px solid rgba(148, 163, 184, 0.55)"
+                      : "1px solid rgba(34,197,94,0.25)",
+                    background: isDark
+                      ? "radial-gradient(circle at 30% 0, rgba(34,197,94,0.7), rgba(2,6,23,1))"
+                      : "radial-gradient(circle at 30% 0, rgba(34,197,94,0.25), rgba(37,99,235,0.15))",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontWeight: 800,
+                    color: isDark ? "#e5e7eb" : "#0f172a",
+                  }}
+                >
+                  {(
+                    activeChat.participants?.find((p) => String(p._id) !== myId)
+                      ?.username || "U"
+                  )[0]?.toUpperCase()}
+                </div>
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 600 }}>
+                    {activeChat.participants?.find(
+                      (p) => String(p._id) !== myId
+                    )?.username || "Chat"}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: isDark ? "#9ca3af" : "#64748b",
+                    }}
+                  >
+                    {activeChat.participants?.find(
+                      (p) => String(p._id) !== myId
+                    )?.isOnline
+                      ? "Online"
+                      : "Offline"}
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* MESSAGES */}
             <div
               style={{
                 flex: 1,
-                padding: "10px",
+                padding: "16px 18px",
                 overflowY: "auto",
-                backgroundColor: "#fafafa",
+                background: isDark
+                  ? "radial-gradient(circle at top left, rgba(30,64,175,0.3), transparent 55%)"
+                  : "radial-gradient(circle at top left, rgba(59,130,246,0.10), transparent 55%)",
               }}
             >
               {messages.map((msg, i) => {
@@ -329,16 +512,30 @@ export default function Chat() {
                     style={{
                       display: "flex",
                       justifyContent: isMe ? "flex-end" : "flex-start",
-                      marginBottom: "8px",
+                      marginBottom: 8,
                     }}
                   >
                     <div
                       style={{
-                        maxWidth: "60%",
-                        padding: "10px",
-                        borderRadius: "10px",
-                        backgroundColor: isMe ? "#dcf8c6" : "#ffffff",
-                        border: "1px solid #ddd",
+                        maxWidth: "64%",
+                        padding: "8px 12px",
+                        borderRadius: 16,
+                        backgroundColor: isMe
+                          ? isDark
+                            ? "#4f46e5"
+                            : "#2563eb"
+                          : isDark
+                            ? "#020617"
+                            : "#ffffff",
+                        border: isMe
+                          ? isDark
+                            ? "1px solid rgba(129,140,248,0.7)"
+                            : "1px solid rgba(37,99,235,0.35)"
+                          : isDark
+                            ? "1px solid #111827"
+                            : "1px solid #e5e7eb",
+                        color: isMe ? "#ffffff" : isDark ? "#e5e7eb" : "#0f172a",
+                        fontSize: 14,
                       }}
                     >
                       {msg.content}
@@ -346,14 +543,17 @@ export default function Chat() {
                   </div>
                 );
               })}
+              <div ref={messagesEndRef} />
             </div>
   
             {/* INPUT BOX */}
             <div
               style={{
                 display: "flex",
-                padding: "10px",
-                borderTop: "1px solid #ddd",
+                padding: "12px 16px",
+                borderTop: isDark ? "1px solid #111827" : "1px solid #e5e7eb",
+                gap: 10,
+                backgroundColor: isDark ? "#020617" : "#ffffff",
               }}
             >
               <input
@@ -365,20 +565,31 @@ export default function Chat() {
                     sendMessage(e);
                   }
                 }}
-                placeholder="Type a message"
+                placeholder="Type a message..."
                 style={{
                   flex: 1,
-                  padding: "8px",
-                  fontSize: "14px",
+                  padding: "10px 14px",
+                  fontSize: 14,
+                  borderRadius: 999,
+                  border: isDark ? "1px solid #374151" : "1px solid #cbd5f5",
+                  backgroundColor: isDark ? "#020617" : "#f9fafb",
+                  color: isDark ? "#e5e7eb" : "#0f172a",
+                  outline: "none",
                 }}
               />
               <button
                 type="button"
                 onClick={sendMessage}
                 style={{
-                  marginLeft: "10px",
-                  padding: "8px 16px",
+                  padding: "10px 22px",
+                  borderRadius: 999,
                   cursor: "pointer",
+                  border: "none",
+                  background:
+                    "linear-gradient(135deg, #2563eb, #4f46e5)",
+                  color: "#f9fafb",
+                  fontSize: 14,
+                  fontWeight: 500,
                 }}
               >
                 Send
@@ -386,7 +597,21 @@ export default function Chat() {
             </div>
           </>
         ) : (
-          <p style={{ padding: "20px" }}>Select a chat</p>
+          <div
+            style={{
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              color: isDark ? "#6b7280" : "#64748b",
+            }}
+          >
+            <p style={{ fontSize: 16, marginBottom: 6 }}>No chat selected</p>
+            <p style={{ fontSize: 13 }}>
+              Choose a conversation from the left to get started.
+            </p>
+          </div>
         )}
       </div>
     </div>

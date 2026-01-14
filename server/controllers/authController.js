@@ -1,7 +1,7 @@
 const User = require("../models/User");
 const bcrypt = require("bcryptjs");
 
-exports.register = async (req, res) => {
+exports.register = async (req, res, next) => {
     try {
       console.log("REGISTER CONTROLLER HIT");
   
@@ -21,9 +21,14 @@ exports.register = async (req, res) => {
   
       username = formatUsername(username);
   
-      const existingUser = await User.findOne({ email });
-      if (existingUser) {
-        return res.status(400).json({ msg: "User already exists" });
+      const existingEmail = await User.findOne({ email });
+      if (existingEmail) {
+        return res.status(400).json({ msg: "Email already exists" });
+      }
+
+      const existingUsername = await User.findOne({ username });
+      if (existingUsername) {
+        return res.status(400).json({ msg: "Username already exists" });
       }
   
       const salt = await bcrypt.genSalt(10);
@@ -37,15 +42,39 @@ exports.register = async (req, res) => {
   
       res.status(201).json({ msg: "User registered successfully" });
     } catch (err) {
-      console.error(err);
-      res.status(500).json({ msg: "Server error" });
+      console.error("REGISTER ERROR:", err);
+
+      // Handle duplicate key error nicely
+      if (err?.code === 11000) {
+        const field = Object.keys(err.keyPattern || err.keyValue || {})[0] || "field";
+        return res.status(400).json({ msg: `${field} already exists` });
+      }
+
+      // Mongoose validation errors
+      if (err?.name === "ValidationError") {
+        return res.status(400).json({ msg: err.message });
+      }
+
+      // If response already sent, pass to Express error handler
+      return res.status(500).json({
+        msg: "Server error",
+        error: err.message,
+      });
+      
+
+      // Surface message while debugging
+      res.status(500).json({
+        msg: "Server error",
+        error: err?.message,
+        code: err?.code,
+      });
     }
   };
   
 
 const jwt = require("jsonwebtoken");
 
-exports.login = async(req,res)=>{
+exports.login = async(req,res,next)=>{
     try{
         console.log("LOGIN CONTROLLER HIT");
         const {email,password} = req.body;
@@ -77,12 +106,19 @@ exports.login = async(req,res)=>{
     }
     catch (err) {
         console.error("LOGIN ERROR 👉", err);
-        res.status(500).json({ msg: "Server error" });
+        
+        // If response already sent, pass to Express error handler
+        return res.status(500).json({
+          msg: "Server error",
+          error: err.message,
+        });
+        
+        
       }
       
 }
 
-exports.getMe = async (req, res) => {
+exports.getMe = async (req, res, next) => {
     try {
         const user = await User.findById(req.user).select("-password");
         if (!user) {
@@ -97,6 +133,12 @@ exports.getMe = async (req, res) => {
         });
     } catch (err) {
         console.error("GET ME ERROR 👉", err);
-        res.status(500).json({ msg: "Server error" });
+        
+        // If response already sent, pass to Express error handler
+        return res.status(500).json({
+          msg: "Server error",
+          error: err.message,
+        });
+        
     }
 };
