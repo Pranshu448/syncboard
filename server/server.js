@@ -27,12 +27,24 @@ const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: '*',
+    origin: process.env.CLIENT_URL || "http://localhost:5173",
+    credentials: true,
   },
-  // Add these options for better reliability
-  transports: ['websocket', 'polling'],
+  // Optimize for real-time whiteboard performance
+  transports: ["websocket", "polling"],
   pingTimeout: 60000,
   pingInterval: 25000,
+  upgradeTimeout: 30000,
+  maxHttpBufferSize: 1e6, // 1MB max message size
+  // Enable compression for better performance
+  perMessageDeflate: {
+    threshold: 1024, // Compress messages larger than 1KB
+  },
+  // Connection state recovery for reconnections
+  connectionStateRecovery: {
+    maxDisconnectionDuration: 2 * 60 * 1000, // 2 minutes
+    skipMiddlewares: true,
+  },
 });
 
 socket.init(io);
@@ -60,6 +72,48 @@ app.use("/api/teams", teamRoutes);
 // Store online users and room states
 const onlineUsers = new Set();
 
+/* ==================== WHITEBOARD STATE MANAGEMENT ==================== */
+
+// Store active whiteboard rooms and their participants
+const whiteboardRooms = new Map();
+
+// Room state structure:
+// {
+//   roomId: {
+//     participants: Set<socketId>,
+//     strokes: [], // Optional: store recent strokes for late joiners
+//     lastActivity: timestamp
+//   }
+// }
+
+/* ==================== HELPER FUNCTIONS ==================== */
+
+const getRoomState = (roomId) => {
+  if (!whiteboardRooms.has(roomId)) {
+    whiteboardRooms.set(roomId, {
+      participants: new Set(),
+      strokes: [],
+      lastActivity: Date.now(),
+    });
+  }
+  return whiteboardRooms.get(roomId);
+};
+
+const cleanupInactiveRooms = () => {
+  const now = Date.now();
+  const INACTIVE_TIMEOUT = 3600000; // 1 hour
+
+  for (const [roomId, room] of whiteboardRooms.entries()) {
+    if (room.participants.size === 0 && now - room.lastActivity > INACTIVE_TIMEOUT) {
+      whiteboardRooms.delete(roomId);
+      console.log(`🧹 Cleaned up inactive room: ${roomId}`);
+    }
+  }
+};
+
+// Run cleanup every 30 minutes
+setInterval(cleanupInactiveRooms, 1800000);
+
 io.on("connection", async (socket) => {
   const userId = socket.userId;
 
@@ -80,17 +134,142 @@ io.on("connection", async (socket) => {
   socket.join(userId);
   socket.broadcast.emit("user_online", userId);
 
-  /* ==================== WHITEBOARD ==================== */
+  /* ==================== WHITEBOARD SOCKET EVENTS ==================== */
 
-  // Whiteboard Join Room
+  // Whiteboard Join Room - Enhanced with state tracking
   socket.on("join_whiteboard", (roomId) => {
+    if (!roomId || typeof roomId !== "string") {
+      console.log("❌ Invalid roomId for whiteboard join");
+      socket.emit("error", { message: "Invalid room ID" });
+      return;
+    }
+
+    // Join the Socket.IO room
     socket.join(roomId);
+
+    // Track participant in room state
+    const roomState = getRoomState(roomId);
+    roomState.participants.add(socket.id);
+    roomState.lastActivity = Date.now();
+
+    console.log(
+      `✅ User ${userId} joined whiteboard room: ${roomId} (${roomState.participants.size} participants)`
+    );
+
+    // Send current participant count to the joining user
+    socket.emit("room_joined", {
+      roomId,
+      participantCount: roomState.participants.size,
+      // Optional: send recent strokes for synchronization
+      recentStrokes: roomState.strokes.slice(-50), // Last 50 strokes
+    });
+
+    // Notify others in the room
+    socket.to(roomId).emit("user_joined_whiteboard", {
+      userId,
+      roomId,
+      participantCount: roomState.participants.size,
+    });
   });
-  
+
+  // Handle drawing events - Optimized for multiple users
   socket.on("draw_event", (data) => {
-    socket.to(data.roomId).emit("draw_event", data);
+    if (!data || !data.roomId || !data.points) {
+      console.log("❌ Invalid draw_event data");
+      return;
+    }
+
+    // Validate points array
+    if (!Array.isArray(data.points) || data.points.length < 2) {
+      return;
+    }
+
+    // Validate roomId
+    if (typeof data.roomId !== "string") {
+      return;
+    }
+
+    const roomState = getRoomState(data.roomId);
+    roomState.lastActivity = Date.now();
+
+    // Create optimized draw data with minimal payload
+    const drawData = {
+      points: data.points,
+      strokeStyle: data.strokeStyle || "#2d3436",
+      lineWidth: data.lineWidth || 3,
+      senderId: socket.id,
+      timestamp: Date.now(),
+    };
+
+    // Store stroke in room history (limit to last 100 strokes)
+    roomState.strokes.push(drawData);
+    if (roomState.strokes.length > 100) {
+      roomState.strokes.shift();
+    }
+
+    // Use volatile emit for real-time drawing to prevent buffering
+    // This allows dropping packets if client is slow, preventing lag buildup
+    socket.volatile.to(data.roomId).emit("draw_event", drawData);
   });
-  
+
+  // Handle clear canvas events
+  socket.on("clear_event", (data) => {
+    if (!data || !data.roomId) {
+      console.log("❌ Invalid clear_event data");
+      return;
+    }
+
+    if (typeof data.roomId !== "string") {
+      return;
+    }
+
+    const roomState = getRoomState(data.roomId);
+    roomState.lastActivity = Date.now();
+
+    // Clear stored strokes
+    roomState.strokes = [];
+
+    console.log(`🗑️ User ${userId} cleared whiteboard room: ${data.roomId}`);
+
+    // Broadcast clear event to all clients in the room (including sender for consistency)
+    io.to(data.roomId).emit("clear_event", {
+      roomId: data.roomId,
+      senderId: socket.id,
+      timestamp: Date.now(),
+    });
+  });
+
+  // Leave whiteboard room
+  socket.on("leave_whiteboard", (roomId) => {
+    if (!roomId || typeof roomId !== "string") {
+      return;
+    }
+
+    socket.leave(roomId);
+
+    const roomState = whiteboardRooms.get(roomId);
+    if (roomState) {
+      roomState.participants.delete(socket.id);
+      roomState.lastActivity = Date.now();
+
+      console.log(
+        `👋 User ${userId} left whiteboard room: ${roomId} (${roomState.participants.size} remaining)`
+      );
+
+      // Notify others
+      socket.to(roomId).emit("user_left_whiteboard", {
+        userId,
+        roomId,
+        participantCount: roomState.participants.size,
+      });
+
+      // Clean up empty rooms immediately
+      if (roomState.participants.size === 0) {
+        whiteboardRooms.delete(roomId);
+        console.log(`🧹 Removed empty room: ${roomId}`);
+      }
+    }
+  });
 
   /* ==================== CHAT MESSAGES ==================== */
 
@@ -173,9 +352,31 @@ io.on("connection", async (socket) => {
 
   /**
    * Handle user disconnection
+   * Enhanced to clean up whiteboard rooms
    */
   socket.on("disconnect", async () => {
     console.log("User disconnected:", socket.id);
+
+    // Clean up from all whiteboard rooms
+    for (const [roomId, roomState] of whiteboardRooms.entries()) {
+      if (roomState.participants.has(socket.id)) {
+        roomState.participants.delete(socket.id);
+
+        // Notify others in the room
+        socket.to(roomId).emit("user_left_whiteboard", {
+          userId,
+          roomId,
+          participantCount: roomState.participants.size,
+        });
+
+        // Remove empty rooms
+        if (roomState.participants.size === 0) {
+          whiteboardRooms.delete(roomId);
+          console.log(`🧹 Removed empty room on disconnect: ${roomId}`);
+        }
+      }
+    }
+
     try {
       await User.findByIdAndUpdate(userId, { isOnline: false });
       socket.broadcast.emit("user_offline", userId);
