@@ -1,24 +1,37 @@
 import { useEffect, useRef, useCallback, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { useSocket, useSocketStatus } from "../context/SocketContext";
-import CanvasBoard from "../components/CanvasBoard";
+import { useAuth } from "../context/AuthContext";
+import { useTheme } from "../context/ThemeContext";
 
 export default function Whiteboard() {
   const { roomId } = useParams();
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const socket = useSocket();
   const isConnected = useSocketStatus();
+  const { theme } = useTheme();
+  const isDark = theme === "dark";
 
   const canvasRef = useRef(null);
   const ctxRef = useRef(null);
   const lastEmitTimeRef = useRef(0);
   const currentRoomRef = useRef(null);
   const [participantCount, setParticipantCount] = useState(1);
-  const [showStatus, setShowStatus] = useState(true);
+  const [boardTitle, setBoardTitle] = useState("Design Sprint Board");
+  const [activeTool, setActiveTool] = useState("pen");
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [zoom, setZoom] = useState(100);
+  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const [lastPanPoint, setLastPanPoint] = useState({ x: 0, y: 0 });
+  const [userInitials, setUserInitials] = useState([]);
+  const strokeHistoryRef = useRef([]);
+  const historyIndexRef = useRef(-1);
 
-  // Optimized throttle rate for 5+ users
-  const EMIT_THROTTLE_MS = 50; // Slightly increased from 16ms for better server handling
+  const EMIT_THROTTLE_MS = 16; // 60fps for smooth drawing
 
-  /* ---------------- SETUP CONTEXT ---------------- */
+  // Initialize canvas with dark theme and grid
   useEffect(() => {
     if (!canvasRef.current) return;
 
@@ -31,19 +44,64 @@ export default function Whiteboard() {
     const ctx = canvas.getContext("2d");
     ctx.scale(dpr, dpr);
 
+    // Draw grid background
+    drawGrid(ctx, canvas.width / dpr, canvas.height / dpr);
+
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    ctx.strokeStyle = "#2d3436";
-    ctx.lineWidth = 3;
-    ctx.shadowBlur = 1;
-    ctx.shadowColor = "#2d3436";
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 2;
 
     ctxRef.current = ctx;
   }, []);
 
-  /* ---------------- SMOOTH STROKE DRAWING ---------------- */
-  const drawSmoothStroke = useCallback((points, ctx) => {
+  // Draw grid background
+  const drawGrid = useCallback((ctx, width, height) => {
+    ctx.fillStyle = "#0f172a";
+    ctx.fillRect(0, 0, width, height);
+
+    ctx.strokeStyle = "#1e293b";
+    ctx.lineWidth = 1;
+
+    const gridSize = 20;
+    for (let x = 0; x <= width; x += gridSize) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, height);
+      ctx.stroke();
+    }
+
+    for (let y = 0; y <= height; y += gridSize) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(width, y);
+      ctx.stroke();
+    }
+  }, []);
+
+  // Redraw grid when zoom changes
+  useEffect(() => {
+    if (!ctxRef.current || !canvasRef.current) return;
+    const canvas = canvasRef.current;
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    const width = rect.width;
+    const height = rect.height;
+
+    // Redraw grid
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawGrid(ctx, width, height);
+  }, [zoom, drawGrid]);
+
+  // Smooth stroke drawing
+  const drawSmoothStroke = useCallback((points, ctx, color = "#ffffff", width = 2) => {
     if (!points || points.length < 2) return;
+
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
 
     if (points.length === 2) {
       ctx.beginPath();
@@ -53,7 +111,6 @@ export default function Whiteboard() {
       return;
     }
 
-    // Draw smooth curves
     for (let i = 0; i < points.length - 2; i++) {
       const p0 = points[i];
       const p1 = points[i + 1];
@@ -71,7 +128,7 @@ export default function Whiteboard() {
     }
   }, []);
 
-  /* ---------------- JOIN ROOM & HANDLE RECONNECTION ---------------- */
+  // Join room and handle reconnection
   useEffect(() => {
     if (!socket || !roomId || !isConnected) return;
 
@@ -79,11 +136,7 @@ export default function Whiteboard() {
     currentRoomRef.current = roomId;
     socket.emit("join_whiteboard", roomId);
 
-    // Hide status indicator after 3 seconds
-    const timer = setTimeout(() => setShowStatus(false), 3000);
-
     return () => {
-      clearTimeout(timer);
       if (currentRoomRef.current) {
         socket.emit("leave_whiteboard", currentRoomRef.current);
         currentRoomRef.current = null;
@@ -96,20 +149,26 @@ export default function Whiteboard() {
     };
   }, [socket, roomId, isConnected]);
 
-  /* ---------------- HANDLE ROOM STATE ---------------- */
+  // Handle room state
   useEffect(() => {
     if (!socket) return;
 
     const handleRoomJoined = (data) => {
       console.log("Room joined:", data);
       setParticipantCount(data.participantCount || 1);
+      setUserInitials(["JD", "SV", "MJ"].slice(0, data.participantCount || 1));
 
-      // Draw recent strokes if available (for late joiners)
+      // Draw recent strokes if available
       if (data.recentStrokes && data.recentStrokes.length > 0 && ctxRef.current) {
         requestAnimationFrame(() => {
           data.recentStrokes.forEach((stroke) => {
             if (stroke.points && ctxRef.current) {
-              drawSmoothStroke(stroke.points, ctxRef.current);
+              drawSmoothStroke(
+                stroke.points,
+                ctxRef.current,
+                stroke.strokeStyle,
+                stroke.lineWidth
+              );
             }
           });
         });
@@ -119,8 +178,6 @@ export default function Whiteboard() {
     const handleUserJoined = (data) => {
       console.log("User joined:", data);
       setParticipantCount(data.participantCount || participantCount + 1);
-      setShowStatus(true);
-      setTimeout(() => setShowStatus(false), 3000);
     };
 
     const handleUserLeft = (data) => {
@@ -139,44 +196,39 @@ export default function Whiteboard() {
     };
   }, [socket, drawSmoothStroke, participantCount]);
 
-  /* ---------------- RECEIVE REMOTE DRAW EVENTS ---------------- */
+  // Receive remote draw events
   useEffect(() => {
     if (!socket || !ctxRef.current) return;
 
     const handleRemoteDraw = (data) => {
-      // Skip own drawings
-      if (data.senderId === socket.id) {
-        return;
-      }
+      if (data.senderId === socket.id) return;
 
       if (!ctxRef.current || !data.points || data.points.length < 2) return;
 
-      const ctx = ctxRef.current;
-
-      // Apply stroke style
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-      ctx.strokeStyle = data.strokeStyle || "#2d3436";
-      ctx.lineWidth = data.lineWidth || 3;
-      ctx.shadowBlur = 1;
-      ctx.shadowColor = data.strokeStyle || "#2d3436";
-
-      // Use RAF for smooth rendering
       requestAnimationFrame(() => {
         if (ctxRef.current) {
-          drawSmoothStroke(data.points, ctxRef.current);
+          drawSmoothStroke(
+            data.points,
+            ctxRef.current,
+            data.strokeStyle || "#ffffff",
+            data.lineWidth || 2
+          );
         }
       });
     };
 
     const handleClear = (data) => {
-      // Skip if we initiated the clear
-      if (data.senderId === socket.id) {
-        return;
-      }
+      if (data.senderId === socket.id) return;
 
       if (!ctxRef.current || !canvasRef.current) return;
-      ctxRef.current.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+      const canvas = canvasRef.current;
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      const ctx = canvas.getContext("2d");
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawGrid(ctx, rect.width, rect.height);
+      strokeHistoryRef.current = [];
+      historyIndexRef.current = -1;
     };
 
     socket.on("draw_event", handleRemoteDraw);
@@ -186,121 +238,605 @@ export default function Whiteboard() {
       socket.off("draw_event", handleRemoteDraw);
       socket.off("clear_event", handleClear);
     };
-  }, [socket, drawSmoothStroke]);
+  }, [socket, drawSmoothStroke, drawGrid]);
 
-  /* ---------------- SEND DRAW EVENTS (Optimized) ---------------- */
-  const handleDraw = useCallback(
-    (points) => {
-      if (!socket || !roomId || !points || points.length < 2) return;
+  // Canvas drawing handlers
+  const getPointFromEvent = useCallback((e) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    const clientX = e.clientX ?? e.touches?.[0]?.clientX ?? 0;
+    const clientY = e.clientY ?? e.touches?.[0]?.clientY ?? 0;
+    return {
+      x: (clientX - rect.left - panOffset.x) * (100 / zoom),
+      y: (clientY - rect.top - panOffset.y) * (100 / zoom),
+    };
+  }, [panOffset, zoom]);
 
-      const now = Date.now();
+  const currentStrokeRef = useRef([]);
 
-      // Throttle emissions for better performance with multiple users
-      if (now - lastEmitTimeRef.current < EMIT_THROTTLE_MS) {
-        return;
-      }
+  const handleMouseDown = useCallback((e) => {
+    if (activeTool !== "pen") return;
 
+    const point = getPointFromEvent(e);
+    if (!point) return;
+
+    setIsDrawing(true);
+    currentStrokeRef.current = [point];
+  }, [activeTool, getPointFromEvent]);
+
+  const handleMouseMove = useCallback((e) => {
+    if (activeTool === "hand" && isPanning) {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const clientX = e.clientX ?? e.touches?.[0]?.clientX ?? 0;
+      const clientY = e.clientY ?? e.touches?.[0]?.clientY ?? 0;
+
+      const deltaX = clientX - lastPanPoint.x;
+      const deltaY = clientY - lastPanPoint.y;
+
+      setPanOffset((prev) => ({
+        x: prev.x + deltaX,
+        y: prev.y + deltaY,
+      }));
+
+      setLastPanPoint({ x: clientX, y: clientY });
+      return;
+    }
+
+    if (!isDrawing || activeTool !== "pen") return;
+
+    const point = getPointFromEvent(e);
+    if (!point || !ctxRef.current) return;
+
+    currentStrokeRef.current.push(point);
+
+    // Draw locally
+    if (currentStrokeRef.current.length >= 2) {
+      drawSmoothStroke(
+        currentStrokeRef.current.slice(-2),
+        ctxRef.current,
+        "#ffffff",
+        2
+      );
+    }
+
+    // Emit to server (throttled)
+    const now = Date.now();
+    if (now - lastEmitTimeRef.current >= EMIT_THROTTLE_MS && socket && roomId) {
       lastEmitTimeRef.current = now;
-      const drawData = {
+      socket.emit("draw_event", {
         roomId,
-        points,
-        strokeStyle: "#2d3436",
-        lineWidth: 3,
-      };
+        points: currentStrokeRef.current,
+        strokeStyle: "#ffffff",
+        lineWidth: 2,
+      });
+    }
+  }, [isDrawing, activeTool, isPanning, getPointFromEvent, drawSmoothStroke, socket, roomId, lastPanPoint]);
 
-      socket.emit("draw_event", drawData);
-    },
-    [socket, roomId]
-  );
+  const handleMouseUp = useCallback(() => {
+    if (activeTool === "hand") {
+      setIsPanning(false);
+      return;
+    }
 
-  /* ---------------- CLEAR CANVAS HANDLER ---------------- */
+    if (isDrawing && currentStrokeRef.current.length > 1) {
+      // Save to history for undo
+      const strokeCopy = [...currentStrokeRef.current];
+      strokeHistoryRef.current = strokeHistoryRef.current.slice(0, historyIndexRef.current + 1);
+      strokeHistoryRef.current.push({
+        points: strokeCopy,
+        strokeStyle: "#ffffff",
+        lineWidth: 2,
+      });
+      historyIndexRef.current = strokeHistoryRef.current.length - 1;
+    }
+
+    setIsDrawing(false);
+    currentStrokeRef.current = [];
+  }, [isDrawing, activeTool]);
+
+  const handlePanStart = useCallback((e) => {
+    if (activeTool !== "hand") return;
+    setIsPanning(true);
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const clientX = e.clientX ?? e.touches?.[0]?.clientX ?? 0;
+    const clientY = e.clientY ?? e.touches?.[0]?.clientY ?? 0;
+    setLastPanPoint({ x: clientX, y: clientY });
+  }, [activeTool]);
+
+  // Clear canvas
   const handleClear = useCallback(() => {
     if (!socket || !roomId || !ctxRef.current || !canvasRef.current) return;
 
-    ctxRef.current.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+    const canvas = canvasRef.current;
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawGrid(ctx, rect.width, rect.height);
+
+    strokeHistoryRef.current = [];
+    historyIndexRef.current = -1;
+
     socket.emit("clear_event", { roomId });
-  }, [socket, roomId]);
+  }, [socket, roomId, drawGrid]);
+
+  // Undo/Redo
+  const handleUndo = useCallback(() => {
+    if (historyIndexRef.current < 0 || !ctxRef.current || !canvasRef.current) return;
+
+    // Redraw everything except last stroke
+    const canvas = canvasRef.current;
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawGrid(ctx, rect.width, rect.height);
+
+    historyIndexRef.current--;
+    for (let i = 0; i <= historyIndexRef.current; i++) {
+      const stroke = strokeHistoryRef.current[i];
+      if (stroke) {
+        drawSmoothStroke(stroke.points, ctx, stroke.strokeStyle, stroke.lineWidth);
+      }
+    }
+  }, [drawGrid, drawSmoothStroke]);
+
+  const handleRedo = useCallback(() => {
+    if (
+      historyIndexRef.current >= strokeHistoryRef.current.length - 1 ||
+      !ctxRef.current ||
+      !canvasRef.current
+    )
+      return;
+
+    historyIndexRef.current++;
+    const stroke = strokeHistoryRef.current[historyIndexRef.current];
+    if (stroke && ctxRef.current) {
+      drawSmoothStroke(stroke.points, ctxRef.current, stroke.strokeStyle, stroke.lineWidth);
+    }
+  }, [drawSmoothStroke]);
+
+  // Export canvas
+  const handleExport = useCallback(() => {
+    if (!canvasRef.current) return;
+    const dataURL = canvasRef.current.toDataURL("image/png");
+    const link = document.createElement("a");
+    link.download = `whiteboard-${roomId}-${Date.now()}.png`;
+    link.href = dataURL;
+    link.click();
+  }, [roomId]);
+
+  // Zoom controls
+  const handleZoomIn = useCallback(() => {
+    setZoom((prev) => Math.min(prev + 10, 200));
+  }, []);
+
+  const handleZoomOut = useCallback(() => {
+    setZoom((prev) => Math.max(prev - 10, 50));
+  }, []);
 
   return (
     <div
       style={{
         width: "100vw",
         height: "100vh",
-        backgroundColor: "#f5f6fa",
-        position: "relative",
+        backgroundColor: "#0f172a",
+        display: "flex",
+        flexDirection: "column",
+        color: "#e5e7eb",
+        fontFamily: "system-ui, -apple-system, sans-serif",
       }}
     >
-      {/* Connection & Participant Status */}
-      {showStatus && (
-        <div
-          style={{
-            position: "absolute",
-            top: "10px",
-            left: "10px",
-            zIndex: 10,
-            backgroundColor: isConnected ? "#27ae60" : "#e74c3c",
-            color: "white",
-            padding: "8px 16px",
-            borderRadius: "4px",
-            fontSize: "14px",
-            fontWeight: "500",
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            transition: "opacity 0.3s",
-          }}
-        >
-          <div
-            style={{
-              width: "8px",
-              height: "8px",
-              borderRadius: "50%",
-              backgroundColor: "white",
-              animation: isConnected ? "pulse 2s infinite" : "none",
-            }}
-          />
-          {isConnected
-            ? `${participantCount} ${participantCount === 1 ? "user" : "users"} online`
-            : "Disconnected"}
-        </div>
-      )}
-
-      {/* Clear Button */}
-      <div
+      {/* Top Navigation Bar */}
+      <header
         style={{
-          position: "absolute",
-          top: "10px",
-          right: "10px",
-          zIndex: 10,
+          height: 56,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "0 24px",
+          backgroundColor: "#030712",
+          borderBottom: "1px solid #1f2937",
         }}
       >
-        <button
-          onClick={handleClear}
-          disabled={!isConnected}
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <button
+            onClick={() => navigate(-1)}
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "#e5e7eb",
+              cursor: "pointer",
+              fontSize: 20,
+              padding: 8,
+              display: "flex",
+              alignItems: "center",
+            }}
+          >
+            ←
+          </button>
+          <h1
+            style={{
+              margin: 0,
+              fontSize: 16,
+              fontWeight: 600,
+              color: "#e5e7eb",
+            }}
+          >
+            {boardTitle}
+          </h1>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "6px 12px",
+              backgroundColor: "#22c55e",
+              borderRadius: 20,
+              fontSize: 13,
+              fontWeight: 500,
+              color: "#ffffff",
+            }}
+          >
+            <span>📶</span>
+            <span>Connected</span>
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              padding: "4px 8px",
+              backgroundColor: "#1f2937",
+              borderRadius: 20,
+              fontSize: 12,
+            }}
+          >
+            {userInitials.map((init, idx) => (
+              <div
+                key={idx}
+                style={{
+                  width: 24,
+                  height: 24,
+                  borderRadius: "50%",
+                  backgroundColor: "#374151",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 10,
+                  fontWeight: 600,
+                }}
+              >
+                {init}
+              </div>
+            ))}
+          </div>
+
+          <div
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: "50%",
+              backgroundColor: "#2563eb",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 14,
+              fontWeight: 600,
+              color: "#ffffff",
+            }}
+          >
+            {participantCount}
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content Area */}
+      <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+        {/* Left Toolbar */}
+        <aside
           style={{
-            padding: "8px 16px",
-            backgroundColor: isConnected ? "#e74c3c" : "#95a5a6",
-            color: "white",
-            border: "none",
-            borderRadius: "4px",
-            cursor: isConnected ? "pointer" : "not-allowed",
-            fontSize: "14px",
-            fontWeight: "500",
-            opacity: isConnected ? 1 : 0.6,
+            width: 56,
+            backgroundColor: "#030712",
+            borderRight: "1px solid #1f2937",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            padding: "12px 0",
+            gap: 8,
           }}
         >
-          Clear Canvas
-        </button>
+          {/* Pen Tool (Active) */}
+          <button
+            onClick={() => setActiveTool("pen")}
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 8,
+              border: "none",
+              backgroundColor: activeTool === "pen" ? "#2563eb" : "transparent",
+              color: activeTool === "pen" ? "#ffffff" : "#9ca3af",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 20,
+            }}
+            title="Pen"
+          >
+            ✏️
+          </button>
+
+          {/* Sticky Note */}
+          <button
+            onClick={() => setActiveTool("sticky")}
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 8,
+              border: "none",
+              backgroundColor: activeTool === "sticky" ? "#2563eb" : "transparent",
+              color: activeTool === "sticky" ? "#ffffff" : "#9ca3af",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 20,
+            }}
+            title="Sticky Note"
+          >
+            📄
+          </button>
+
+          {/* Hand Tool (Pan) */}
+          <button
+            onClick={() => setActiveTool("hand")}
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 8,
+              border: "none",
+              backgroundColor: activeTool === "hand" ? "#2563eb" : "transparent",
+              color: activeTool === "hand" ? "#ffffff" : "#9ca3af",
+              cursor: activeTool === "hand" ? "grab" : "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 20,
+            }}
+            title="Hand (Pan)"
+          >
+            ✋
+          </button>
+
+          {/* Arrow Pointer (Select) */}
+          <button
+            onClick={() => setActiveTool("arrow")}
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 8,
+              border: "none",
+              backgroundColor: activeTool === "arrow" ? "#2563eb" : "transparent",
+              color: activeTool === "arrow" ? "#ffffff" : "#9ca3af",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 20,
+            }}
+            title="Select"
+          >
+            ➡️
+          </button>
+
+          <div
+            style={{
+              width: "80%",
+              height: 1,
+              backgroundColor: "#1f2937",
+              margin: "8px 0",
+            }}
+          />
+
+          {/* Undo */}
+          <button
+            onClick={handleUndo}
+            disabled={historyIndexRef.current < 0}
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 8,
+              border: "none",
+              backgroundColor: "transparent",
+              color: historyIndexRef.current >= 0 ? "#9ca3af" : "#475569",
+              cursor: historyIndexRef.current >= 0 ? "pointer" : "not-allowed",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 20,
+            }}
+            title="Undo"
+          >
+            ↶
+          </button>
+
+          {/* Redo */}
+          <button
+            onClick={handleRedo}
+            disabled={historyIndexRef.current >= strokeHistoryRef.current.length - 1}
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 8,
+              border: "none",
+              backgroundColor: "transparent",
+              color:
+                historyIndexRef.current < strokeHistoryRef.current.length - 1
+                  ? "#9ca3af"
+                  : "#475569",
+              cursor:
+                historyIndexRef.current < strokeHistoryRef.current.length - 1
+                  ? "pointer"
+                  : "not-allowed",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 20,
+            }}
+            title="Redo"
+          >
+            ↷
+          </button>
+        </aside>
+
+        {/* Canvas Area */}
+        <div
+          style={{
+            flex: 1,
+            position: "relative",
+            overflow: "hidden",
+            backgroundColor: "#0f172a",
+          }}
+        >
+          <canvas
+            ref={canvasRef}
+            onMouseDown={(e) => {
+              if (activeTool === "hand") {
+                handlePanStart(e);
+              } else {
+                handleMouseDown(e);
+              }
+            }}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onMouseLeave={handleMouseUp}
+            onTouchStart={(e) => {
+              if (activeTool === "hand") {
+                handlePanStart(e);
+              } else {
+                handleMouseDown(e);
+              }
+            }}
+            onTouchMove={handleMouseMove}
+            onTouchEnd={handleMouseUp}
+            style={{
+              width: "100%",
+              height: "100%",
+              cursor: activeTool === "pen" ? "crosshair" : activeTool === "hand" ? "grab" : "default",
+              touchAction: "none",
+              transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${zoom / 100})`,
+              transformOrigin: "0 0",
+            }}
+          />
+        </div>
       </div>
 
-      <CanvasBoard canvasRef={canvasRef} onDraw={handleDraw} onClear={handleClear} />
+      {/* Bottom Control Bar */}
+      <footer
+        style={{
+          height: 48,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "0 24px",
+          backgroundColor: "#030712",
+          borderTop: "1px solid #1f2937",
+        }}
+      >
+        {/* Zoom Controls */}
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <button
+            onClick={handleZoomOut}
+            style={{
+              background: "transparent",
+              border: "1px solid #374151",
+              color: "#e5e7eb",
+              cursor: "pointer",
+              width: 32,
+              height: 32,
+              borderRadius: 6,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 16,
+            }}
+          >
+            −
+          </button>
+          <span style={{ fontSize: 14, color: "#e5e7eb", minWidth: 50, textAlign: "center" }}>
+            {zoom}%
+          </span>
+          <button
+            onClick={handleZoomIn}
+            style={{
+              background: "transparent",
+              border: "1px solid #374151",
+              color: "#e5e7eb",
+              cursor: "pointer",
+              width: 32,
+              height: 32,
+              borderRadius: 6,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 16,
+            }}
+          >
+            +
+          </button>
+        </div>
 
-      <style>{`
-        @keyframes pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.5; }
-        }
-      `}</style>
+        {/* Action Buttons */}
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <button
+            onClick={handleExport}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "8px 16px",
+              backgroundColor: "transparent",
+              border: "1px solid #374151",
+              color: "#e5e7eb",
+              borderRadius: 6,
+              cursor: "pointer",
+              fontSize: 14,
+            }}
+          >
+            <span>⬇️</span>
+            <span>Export</span>
+          </button>
+          <button
+            onClick={handleClear}
+            disabled={!isConnected}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "8px 16px",
+              backgroundColor: "transparent",
+              border: "1px solid #374151",
+              color: isConnected ? "#e5e7eb" : "#6b7280",
+              borderRadius: 6,
+              cursor: isConnected ? "pointer" : "not-allowed",
+              fontSize: 14,
+            }}
+          >
+            <span>🗑️</span>
+            <span>Clear</span>
+          </button>
+        </div>
+      </footer>
     </div>
   );
 }

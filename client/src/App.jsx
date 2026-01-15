@@ -8,6 +8,7 @@ import Teams from "./pages/Teams";
 import Profile from "./pages/Profile";
 import Settings from "./pages/Settings";
 import Session from "./pages/Session";
+import Dashboard from "./pages/Dashboard";
 import ProtectedRoute from "./components/ProtectedRoute";
 import WorkspaceLayout from "./components/WorkspaceLayout";
 
@@ -22,16 +23,6 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
 
-        {/* Protected routes */}
-        <Route
-          path="/chat"
-          element={
-            <ProtectedRoute>
-              <Chat />
-            </ProtectedRoute>
-          }
-        />
-
         {/* Workspace routes with sidebar layout */}
         <Route
           path="/workspace"
@@ -41,13 +32,15 @@ export default function App() {
             </ProtectedRoute>
           }
         >
-          <Route index element={<Teams />} />
+          <Route index element={<Dashboard />} />
+          <Route path="chat" element={<Chat />} />
           <Route path="teams" element={<Teams />} />
           <Route path="profile" element={<Profile />} />
           <Route path="session" element={<Session />} />
           <Route path="settings" element={<Settings />} />
         </Route>
 
+        {/* Standalone whiteboard route */}
         <Route
           path="/whiteboard/:roomId"
           element={

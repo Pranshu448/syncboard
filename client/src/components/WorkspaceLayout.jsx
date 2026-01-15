@@ -11,32 +11,50 @@ export default function WorkspaceLayout() {
   const menuItemStyle = (isActive) => ({
     display: "flex",
     alignItems: "center",
-    justifyContent: "center",
+    gap: 12,
     width: "100%",
-    height: 56,
-    borderRadius: 12,
-    marginBottom: 8,
+    padding: "12px 16px",
+    borderRadius: 8,
+    marginBottom: 4,
     cursor: "pointer",
-    border: isActive
-      ? isDark
-        ? "1px solid #facc15"
-        : "1px solid rgba(37,99,235,0.55)"
-      : "1px solid transparent",
+    border: "none",
     backgroundColor: isActive
       ? isDark
-        ? "#a16207"
-        : "rgba(37,99,235,0.10)"
+        ? "rgba(59, 130, 246, 0.2)" // Light blue background when active
+        : "rgba(59, 130, 246, 0.15)"
       : "transparent",
     color: isActive
-      ? isDark
-        ? "#ffffff"
-        : "#0f172a"
+      ? "#ffffff" // White text when active
       : isDark
         ? "#e5e7eb"
         : "#0f172a",
-    fontSize: 13,
+    fontSize: 14,
     textDecoration: "none",
-    transition: "background-color 0.15s ease, border-color 0.15s ease",
+    transition: "background-color 0.15s ease",
+  });
+
+  const homeItemStyle = (isActive) => ({
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    width: "100%",
+    padding: "12px 16px",
+    borderRadius: 8,
+    marginBottom: 4,
+    cursor: "pointer",
+    border: "none",
+    backgroundColor: isActive
+      ? "rgba(59, 130, 246, 0.3)" // Light blue rectangular background when active - spans full width
+      : "transparent",
+    color: isActive
+      ? "#ffffff" // White text and icon when active
+      : isDark
+        ? "#e5e7eb"
+        : "#0f172a",
+    fontSize: 14,
+    fontWeight: isActive ? 500 : 400,
+    textDecoration: "none",
+    transition: "background-color 0.15s ease",
   });
 
   return (
@@ -54,96 +72,119 @@ export default function WorkspaceLayout() {
       {/* Sidebar */}
       <aside
         style={{
-          width: 88,
-          padding: 16,
+          width: 240,
+          padding: "20px 16px",
           borderRight: isDark ? "1px solid #1f2937" : "1px solid #e5e7eb",
           display: "flex",
           flexDirection: "column",
-          alignItems: "center",
-          gap: 12,
+          gap: 8,
           backgroundColor: isDark ? "#030712" : "#ffffff",
         }}
       >
-        <NavLink
-          to="/"
+        {/* Nexus Branding */}
+        <div
           style={{
-            width: 40,
-            height: 40,
-            borderRadius: 999,
             display: "flex",
             alignItems: "center",
-            justifyContent: "center",
-            background:
-              "radial-gradient(circle at 30% 0, #22c55e, #2563eb)",
-            marginBottom: 18,
-            textDecoration: "none",
-            color: "#e5e7eb",
-            fontWeight: 800,
-            letterSpacing: "0.06em",
-            border: "1px solid rgba(148, 163, 184, 0.35)",
+            gap: 8,
+            marginBottom: 24,
+            paddingLeft: 4,
           }}
-          title="Home"
         >
-          H
+          <div
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: 8,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: "linear-gradient(135deg, #2563eb, #22c55e)",
+              fontSize: 18,
+            }}
+          >
+            ⚡
+          </div>
+          <span
+            style={{
+              fontWeight: 700,
+              fontSize: 18,
+              letterSpacing: "0.02em",
+              color: isDark ? "#e5e7eb" : "#0f172a",
+            }}
+          >
+            Nexus
+          </span>
+        </div>
+
+        {/* Main Navigation */}
+        <NavLink
+          to="/workspace"
+          style={({ isActive }) => homeItemStyle(isActive)}
+        >
+          <span style={{ fontSize: 18 }}>🏠</span>
+          <span>Home</span>
         </NavLink>
 
         <NavLink
-          to="/"
+          to="/workspace/chat"
           style={({ isActive }) => menuItemStyle(isActive)}
         >
-          Home
+          <span style={{ fontSize: 18 }}>💬</span>
+          <span>Chat</span>
         </NavLink>
 
         <NavLink
           to="/workspace/teams"
           style={({ isActive }) => menuItemStyle(isActive)}
         >
-          Team
+          <span style={{ fontSize: 18 }}>👥</span>
+          <span>Teams</span>
         </NavLink>
 
         <button
           type="button"
-          onClick={() => navigate("/chat")}
+          onClick={() => navigate(`/whiteboard/${Date.now()}`)}
           style={menuItemStyle(false)}
         >
-          Chat
+          <span style={{ fontSize: 18 }}>📋</span>
+          <span>Whiteboard</span>
         </button>
 
         <NavLink
           to="/workspace/session"
           style={({ isActive }) => menuItemStyle(isActive)}
         >
-          Session
+          <span style={{ fontSize: 18 }}>📄</span>
+          <span>Sessions</span>
+        </NavLink>
+
+        <div style={{ flex: 1 }} />
+
+        {/* Divider */}
+        <div
+          style={{
+            height: 1,
+            backgroundColor: isDark ? "#1f2937" : "#e5e7eb",
+            margin: "16px 0",
+          }}
+        />
+
+        {/* User/App Settings */}
+        <NavLink
+          to="/workspace/profile"
+          style={({ isActive }) => menuItemStyle(isActive)}
+        >
+          <span style={{ fontSize: 18 }}>👤</span>
+          <span>Profile</span>
         </NavLink>
 
         <NavLink
           to="/workspace/settings"
           style={({ isActive }) => menuItemStyle(isActive)}
         >
-          Settings
-        </NavLink>
-
-        <div style={{ flex: 1 }} />
-
-        <NavLink
-          to="/workspace/profile"
-          style={({ isActive }) => ({
-            width: 40,
-            height: 40,
-            borderRadius: 999,
-            border: isActive ? "2px solid #facc15" : "2px solid #4b5563",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            cursor: "pointer",
-            textDecoration: "none",
-            background:
-              "radial-gradient(circle at 30% 0, rgba(99,102,241,0.55), rgba(2,6,23,1))",
-          })}
-        >
-          <span style={{ fontSize: 16, fontWeight: 700 }}>
-            {user?.username?.[0]?.toUpperCase() || "U"}
-          </span>
+          <span style={{ fontSize: 18 }}>⚙️</span>
+          <span>Settings</span>
         </NavLink>
       </aside>
 

@@ -166,10 +166,10 @@ export default function Teams() {
                     otherUserId: user._id,
                   });
                   const chat = res.data;
-                  navigate("/chat", { state: { openChatId: chat._id } });
+                  navigate("/workspace/chat", { state: { openChatId: chat._id } });
                 } catch (err) {
                   console.error("Failed to open chat from team list", err);
-                  navigate("/chat");
+                  navigate("/workspace/chat");
                 }
               }}
               style={{

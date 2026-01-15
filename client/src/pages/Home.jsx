@@ -1,12 +1,25 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
+import { useEffect } from "react";
 
 export default function Home() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const { theme } = useTheme();
   const isDark = theme === "dark";
+
+  // Redirect logged-in users to dashboard
+  useEffect(() => {
+    if (user) {
+      navigate("/workspace", { replace: true });
+    }
+  }, [user, navigate]);
+
+  // Show loading or nothing while redirecting
+  if (user) {
+    return null;
+  }
 
   return (
     <div
