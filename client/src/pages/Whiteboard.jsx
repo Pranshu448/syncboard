@@ -4,6 +4,29 @@ import { useSocket, useSocketStatus } from "../context/SocketContext";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
 
+const THEME_COLORS = {
+  dark: {
+    background: "#0f172a",
+    grid: "#1e293b",
+    uiBg: "#030712",
+    uiBorder: "#1f2937",
+    textPrimary: "#e5e7eb",
+    textSecondary: "#9ca3af",
+    buttonBg: "#1f2937",
+    buttonHover: "#374151"
+  },
+  light: {
+    background: "#ffffff",
+    grid: "#e2e8f0",
+    uiBg: "#f8fafc",
+    uiBorder: "#cbd5e1",
+    textPrimary: "#0f172a",
+    textSecondary: "#64748b",
+    buttonBg: "#e2e8f0",
+    buttonHover: "#cbd5e1"
+  }
+};
+
 export default function Whiteboard() {
   const { roomId } = useParams();
   const navigate = useNavigate();
@@ -12,93 +35,90 @@ export default function Whiteboard() {
   const isConnected = useSocketStatus();
   const { theme } = useTheme();
   const isDark = theme === "dark";
+  const colors = isDark ? THEME_COLORS.dark : THEME_COLORS.light;
 
   const canvasRef = useRef(null);
   const ctxRef = useRef(null);
   const lastEmitTimeRef = useRef(0);
   const currentRoomRef = useRef(null);
+
   const [participantCount, setParticipantCount] = useState(1);
   const [boardTitle, setBoardTitle] = useState("Design Sprint Board");
   const [activeTool, setActiveTool] = useState("pen");
+  const [penColor, setPenColor] = useState(isDark ? "#ffffff" : "#000000");
   const [isDrawing, setIsDrawing] = useState(false);
   const [zoom, setZoom] = useState(100);
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
+  const [userInitials, setUserInitials] = useState([]);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+
+  // Navigation State
+  const [isSpacePressed, setIsSpacePressed] = useState(false);
   const [isPanning, setIsPanning] = useState(false);
   const [lastPanPoint, setLastPanPoint] = useState({ x: 0, y: 0 });
-  const [userInitials, setUserInitials] = useState([]);
-  const strokeHistoryRef = useRef([]);
-  const historyIndexRef = useRef(-1);
 
-  const EMIT_THROTTLE_MS = 16; // 60fps for smooth drawing
+  const strokesRef = useRef([]);
+  const myStrokeIdsRef = useRef([]);
+  const redoStackRef = useRef([]);
+  const currentStrokeIdRef = useRef(null);
+  const currentStrokeRef = useRef([]);
 
-  // Initialize canvas with dark theme and grid
+  const EMIT_THROTTLE_MS = 16;
+
+  // Update pen color when theme changes if using defaults
   useEffect(() => {
-    if (!canvasRef.current) return;
+    setPenColor(prevColor => {
+      if (isDark && prevColor === "#000000") return "#ffffff";
+      if (!isDark && prevColor === "#ffffff") return "#000000";
+      return prevColor;
+    });
+  }, [isDark]);
 
-    const canvas = canvasRef.current;
-    const dpr = window.devicePixelRatio || 1;
-    const rect = canvas.getBoundingClientRect();
-
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
-    const ctx = canvas.getContext("2d");
-    ctx.scale(dpr, dpr);
-
-    // Draw grid background
-    drawGrid(ctx, canvas.width / dpr, canvas.height / dpr);
-
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.strokeStyle = "#ffffff";
-    ctx.lineWidth = 2;
-
-    ctxRef.current = ctx;
-  }, []);
-
-  // Draw grid background
-  const drawGrid = useCallback((ctx, width, height) => {
-    ctx.fillStyle = "#0f172a";
+  // Draw grid helper
+  const drawGrid = useCallback((ctx, width, height, scale, pan) => {
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = colors.background;
     ctx.fillRect(0, 0, width, height);
+    ctx.restore();
 
-    ctx.strokeStyle = "#1e293b";
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = colors.grid;
+    ctx.lineWidth = 1 / scale;
 
     const gridSize = 20;
-    for (let x = 0; x <= width; x += gridSize) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, height);
-      ctx.stroke();
+
+    // Visible bounds in world coords
+    const startX = -pan.x / scale;
+    const startY = -pan.y / scale;
+    const endX = startX + width / scale;
+    const endY = startY + height / scale;
+
+    const gridStartX = Math.floor(startX / gridSize) * gridSize;
+    const gridStartY = Math.floor(startY / gridSize) * gridSize;
+
+    ctx.beginPath();
+    for (let x = gridStartX; x <= endX; x += gridSize) {
+      ctx.moveTo(x, startY);
+      ctx.lineTo(x, endY);
     }
-
-    for (let y = 0; y <= height; y += gridSize) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(width, y);
-      ctx.stroke();
+    for (let y = gridStartY; y <= endY; y += gridSize) {
+      ctx.moveTo(startX, y);
+      ctx.lineTo(endX, y);
     }
-  }, []);
-
-  // Redraw grid when zoom changes
-  useEffect(() => {
-    if (!ctxRef.current || !canvasRef.current) return;
-    const canvas = canvasRef.current;
-    const dpr = window.devicePixelRatio || 1;
-    const rect = canvas.getBoundingClientRect();
-    const width = rect.width;
-    const height = rect.height;
-
-    // Redraw grid
-    const ctx = canvas.getContext("2d");
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    drawGrid(ctx, width, height);
-  }, [zoom, drawGrid]);
+    ctx.stroke();
+  }, [colors]);
 
   // Smooth stroke drawing
   const drawSmoothStroke = useCallback((points, ctx, color = "#ffffff", width = 2) => {
     if (!points || points.length < 2) return;
 
-    ctx.strokeStyle = color;
+    // Smart Color Inversion for Visibility
+    let renderColor = color;
+    if (isDark && color === "#000000") renderColor = "#ffffff";
+    if (!isDark && color === "#ffffff") renderColor = "#000000";
+
+    ctx.strokeStyle = renderColor;
     ctx.lineWidth = width;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
@@ -111,351 +131,425 @@ export default function Whiteboard() {
       return;
     }
 
-    for (let i = 0; i < points.length - 2; i++) {
-      const p0 = points[i];
-      const p1 = points[i + 1];
-      const p2 = points[i + 2];
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
 
-      const xc1 = (p0.x + p1.x) / 2;
-      const yc1 = (p0.y + p1.y) / 2;
-      const xc2 = (p1.x + p2.x) / 2;
-      const yc2 = (p1.y + p2.y) / 2;
-
-      ctx.beginPath();
-      ctx.moveTo(xc1, yc1);
-      ctx.quadraticCurveTo(p1.x, p1.y, xc2, yc2);
-      ctx.stroke();
+    for (let i = 0; i < points.length - 1; i++) {
+      const p1 = points[i];
+      const p2 = points[i + 1];
+      const midX = (p1.x + p2.x) / 2;
+      const midY = (p1.y + p2.y) / 2;
+      ctx.quadraticCurveTo(p1.x, p1.y, midX, midY);
     }
+    const last = points[points.length - 1];
+    ctx.lineTo(last.x, last.y);
+    ctx.stroke();
+  }, [isDark]);
+
+  // Redraw Canvas
+  const redrawCanvas = useCallback(() => {
+    if (!ctxRef.current || !canvasRef.current) return;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    const dpr = window.devicePixelRatio || 1;
+
+    // Clear (Reset Transform)
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    const scale = zoom / 100;
+
+    // Apply Transform (Scale + Pan)
+    ctx.setTransform(dpr * scale, 0, 0, dpr * scale, panOffset.x * dpr, panOffset.y * dpr);
+
+    // Grid (drawGrid uses setTransform internally for bg, uses context for lines)
+    drawGrid(ctx, canvas.width, canvas.height, dpr * scale, { x: panOffset.x * dpr, y: panOffset.y * dpr });
+
+    // Strokes
+    strokesRef.current.forEach(stroke => {
+      if (stroke.points && stroke.points.length > 0) {
+        drawSmoothStroke(stroke.points, ctx, stroke.strokeStyle, stroke.lineWidth);
+      }
+    });
+  }, [zoom, panOffset, drawGrid, drawSmoothStroke]);
+
+  // Update Undo/Redo UI & Navigation
+  const updateUndoRedoState = useCallback(() => {
+    setCanUndo(myStrokeIdsRef.current.length > 0);
+    setCanRedo(redoStackRef.current.length > 0);
   }, []);
 
-  // Join room and handle reconnection
+  // Space Key Listener
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.code === "Space" && !e.repeat && e.target.tagName !== 'INPUT') {
+        setIsSpacePressed(true);
+      }
+    };
+    const handleKeyUp = (e) => {
+      if (e.code === "Space") setIsSpacePressed(false);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
+  }, []);
+
+  // Infinite Canvas Wheel Listener
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const handleWheel = (e) => {
+      e.preventDefault();
+      if (e.ctrlKey || e.metaKey) {
+        // Pinch Zoom
+        const zoomSpeed = 0.5;
+        const delta = -e.deltaY * zoomSpeed;
+        setZoom(z => Math.max(10, Math.min(500, z + delta)));
+      } else {
+        // Pan
+        setPanOffset(p => ({
+          x: p.x - e.deltaX,
+          y: p.y - e.deltaY
+        }));
+      }
+    };
+
+    canvas.addEventListener("wheel", handleWheel, { passive: false });
+    return () => canvas.removeEventListener("wheel", handleWheel);
+  }, []);
+
+  // Sync Redraw
+  useEffect(() => {
+    redrawCanvas();
+  }, [zoom, panOffset, redrawCanvas, theme]);
+
+  // Init Sizing
+  useEffect(() => {
+    if (!canvasRef.current) return;
+    const canvas = canvasRef.current;
+
+    const handleResize = () => {
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctxRef.current = canvas.getContext("2d");
+      redrawCanvas();
+    };
+
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [redrawCanvas]);
+
+  // Socket Room
   useEffect(() => {
     if (!socket || !roomId || !isConnected) return;
 
-    console.log("Joining whiteboard room:", roomId);
     currentRoomRef.current = roomId;
     socket.emit("join_whiteboard", roomId);
 
     return () => {
-      if (currentRoomRef.current) {
-        socket.emit("leave_whiteboard", currentRoomRef.current);
-        currentRoomRef.current = null;
-      }
+      if (currentRoomRef.current) socket.emit("leave_whiteboard", currentRoomRef.current);
       socket.off("draw_event");
       socket.off("clear_event");
       socket.off("room_joined");
       socket.off("user_joined_whiteboard");
       socket.off("user_left_whiteboard");
+      socket.off("erase_stroke");
     };
   }, [socket, roomId, isConnected]);
 
-  // Handle room state
+  // Socket Events
   useEffect(() => {
-    if (!socket) return;
+    if (!socket || !ctxRef.current) return;
 
     const handleRoomJoined = (data) => {
-      console.log("Room joined:", data);
       setParticipantCount(data.participantCount || 1);
       setUserInitials(["JD", "SV", "MJ"].slice(0, data.participantCount || 1));
-
-      // Draw recent strokes if available
-      if (data.recentStrokes && data.recentStrokes.length > 0 && ctxRef.current) {
-        requestAnimationFrame(() => {
-          data.recentStrokes.forEach((stroke) => {
-            if (stroke.points && ctxRef.current) {
-              drawSmoothStroke(
-                stroke.points,
-                ctxRef.current,
-                stroke.strokeStyle,
-                stroke.lineWidth
-              );
-            }
-          });
-        });
+      if (data.recentStrokes) {
+        strokesRef.current = data.recentStrokes;
+        redrawCanvas();
       }
     };
 
-    const handleUserJoined = (data) => {
-      console.log("User joined:", data);
-      setParticipantCount(data.participantCount || participantCount + 1);
+    const handleUserJoined = (data) => setParticipantCount(data.participantCount);
+    const handleUserLeft = (data) => setParticipantCount(data.participantCount);
+
+    const handleRemoteDraw = (data) => {
+      if (data.senderId === socket.id) return;
+      strokesRef.current.push({
+        id: data.id || `remote-${Date.now()}-${Math.random()}`,
+        points: data.points,
+        strokeStyle: data.strokeStyle,
+        lineWidth: data.lineWidth
+      });
+      requestAnimationFrame(() => {
+        if (ctxRef.current) {
+          drawSmoothStroke(data.points, ctxRef.current, data.strokeStyle, data.lineWidth);
+        }
+      });
     };
 
-    const handleUserLeft = (data) => {
-      console.log("User left:", data);
-      setParticipantCount(data.participantCount || Math.max(1, participantCount - 1));
+    const handleEraseStroke = (data) => {
+      strokesRef.current = strokesRef.current.filter(s => s.id !== data.strokeId);
+      redrawCanvas();
+    };
+
+    const handleClear = (data) => {
+      if (data.senderId === socket.id) return;
+      strokesRef.current = [];
+      myStrokeIdsRef.current = [];
+      redrawCanvas();
+      updateUndoRedoState();
     };
 
     socket.on("room_joined", handleRoomJoined);
     socket.on("user_joined_whiteboard", handleUserJoined);
     socket.on("user_left_whiteboard", handleUserLeft);
+    socket.on("draw_event", handleRemoteDraw);
+    socket.on("clear_event", handleClear);
+    socket.on("erase_stroke", handleEraseStroke);
 
     return () => {
       socket.off("room_joined", handleRoomJoined);
       socket.off("user_joined_whiteboard", handleUserJoined);
       socket.off("user_left_whiteboard", handleUserLeft);
-    };
-  }, [socket, drawSmoothStroke, participantCount]);
-
-  // Receive remote draw events
-  useEffect(() => {
-    if (!socket || !ctxRef.current) return;
-
-    const handleRemoteDraw = (data) => {
-      if (data.senderId === socket.id) return;
-
-      if (!ctxRef.current || !data.points || data.points.length < 2) return;
-
-      requestAnimationFrame(() => {
-        if (ctxRef.current) {
-          drawSmoothStroke(
-            data.points,
-            ctxRef.current,
-            data.strokeStyle || "#ffffff",
-            data.lineWidth || 2
-          );
-        }
-      });
-    };
-
-    const handleClear = (data) => {
-      if (data.senderId === socket.id) return;
-
-      if (!ctxRef.current || !canvasRef.current) return;
-      const canvas = canvasRef.current;
-      const dpr = window.devicePixelRatio || 1;
-      const rect = canvas.getBoundingClientRect();
-      const ctx = canvas.getContext("2d");
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      drawGrid(ctx, rect.width, rect.height);
-      strokeHistoryRef.current = [];
-      historyIndexRef.current = -1;
-    };
-
-    socket.on("draw_event", handleRemoteDraw);
-    socket.on("clear_event", handleClear);
-
-    return () => {
       socket.off("draw_event", handleRemoteDraw);
       socket.off("clear_event", handleClear);
+      socket.off("erase_stroke", handleEraseStroke);
     };
-  }, [socket, drawSmoothStroke, drawGrid]);
+  }, [socket, redrawCanvas, drawSmoothStroke, updateUndoRedoState]);
 
-  // Canvas drawing handlers
+  // Helpers
   const getPointFromEvent = useCallback((e) => {
     const canvas = canvasRef.current;
     if (!canvas) return null;
     const rect = canvas.getBoundingClientRect();
     const clientX = e.clientX ?? e.touches?.[0]?.clientX ?? 0;
     const clientY = e.clientY ?? e.touches?.[0]?.clientY ?? 0;
-    return {
-      x: (clientX - rect.left - panOffset.x) * (100 / zoom),
-      y: (clientY - rect.top - panOffset.y) * (100 / zoom),
-    };
+
+    const screenX = clientX - rect.left;
+    const screenY = clientY - rect.top;
+
+    // Inverse Transform
+    const scale = zoom / 100;
+    const worldX = (screenX - panOffset.x) / scale;
+    const worldY = (screenY - panOffset.y) / scale;
+
+    return { x: worldX, y: worldY };
   }, [panOffset, zoom]);
 
-  const currentStrokeRef = useRef([]);
+  const distanceToSegment = (p, v, w) => {
+    const l2 = (v.x - w.x) ** 2 + (v.y - w.y) ** 2;
+    if (l2 === 0) return (p.x - v.x) ** 2 + (p.y - v.y) ** 2;
+    let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
+    t = Math.max(0, Math.min(1, t));
+    return (p.x - v.x - t * (w.x - v.x)) ** 2 + (p.y - v.y - t * (w.y - v.y)) ** 2;
+  };
 
+  const eraseStrokeAt = useCallback((point) => {
+    const scale = zoom / 100;
+    const worldThresholdSq = (10 / scale) ** 2;
+
+    let erased = false;
+    const toRemove = [];
+
+    strokesRef.current.forEach(stroke => {
+      if (!stroke.points) return;
+      for (let i = 0; i < stroke.points.length - 1; i++) {
+        const distSq = distanceToSegment(point, stroke.points[i], stroke.points[i + 1]);
+        if (distSq < worldThresholdSq) {
+          toRemove.push(stroke.id);
+          erased = true;
+          break;
+        }
+      }
+    });
+
+    if (erased) {
+      strokesRef.current = strokesRef.current.filter(s => !toRemove.includes(s.id));
+      myStrokeIdsRef.current = myStrokeIdsRef.current.filter(id => !toRemove.includes(id));
+      redrawCanvas();
+      updateUndoRedoState();
+
+      if (socket && roomId) {
+        toRemove.forEach(id => socket.emit("erase_stroke", { roomId, strokeId: id }));
+      }
+    }
+  }, [zoom, socket, roomId, redrawCanvas, updateUndoRedoState]);
+
+  // Handlers
   const handleMouseDown = useCallback((e) => {
-    if (activeTool !== "pen") return;
+    // Space + Drag Pan
+    if (isSpacePressed) {
+      setIsPanning(true);
+      setLastPanPoint({ x: e.clientX, y: e.clientY });
+      return;
+    }
 
     const point = getPointFromEvent(e);
     if (!point) return;
 
-    setIsDrawing(true);
-    currentStrokeRef.current = [point];
-  }, [activeTool, getPointFromEvent]);
+    if (activeTool === "eraser") {
+      setIsDrawing(true);
+      eraseStrokeAt(point);
+      return;
+    }
+    if (activeTool === "pen") {
+      setIsDrawing(true);
+      currentStrokeRef.current = [point];
+      currentStrokeIdRef.current = `stroke-${socket.id}-${Date.now()}`;
+    }
+  }, [activeTool, getPointFromEvent, eraseStrokeAt, socket, isSpacePressed]);
 
   const handleMouseMove = useCallback((e) => {
-    if (activeTool === "hand" && isPanning) {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const rect = canvas.getBoundingClientRect();
-      const clientX = e.clientX ?? e.touches?.[0]?.clientX ?? 0;
-      const clientY = e.clientY ?? e.touches?.[0]?.clientY ?? 0;
-
-      const deltaX = clientX - lastPanPoint.x;
-      const deltaY = clientY - lastPanPoint.y;
-
-      setPanOffset((prev) => ({
-        x: prev.x + deltaX,
-        y: prev.y + deltaY,
-      }));
-
-      setLastPanPoint({ x: clientX, y: clientY });
+    if (isPanning) {
+      const dx = e.clientX - lastPanPoint.x;
+      const dy = e.clientY - lastPanPoint.y;
+      setPanOffset(p => ({ x: p.x + dx, y: p.y + dy }));
+      setLastPanPoint({ x: e.clientX, y: e.clientY });
       return;
     }
 
-    if (!isDrawing || activeTool !== "pen") return;
-
+    if (!isDrawing) return;
     const point = getPointFromEvent(e);
-    if (!point || !ctxRef.current) return;
+    if (!point) return;
 
-    currentStrokeRef.current.push(point);
-
-    // Draw locally
-    if (currentStrokeRef.current.length >= 2) {
-      drawSmoothStroke(
-        currentStrokeRef.current.slice(-2),
-        ctxRef.current,
-        "#ffffff",
-        2
-      );
+    if (activeTool === "eraser") {
+      eraseStrokeAt(point);
+      return;
     }
 
-    // Emit to server (throttled)
-    const now = Date.now();
-    if (now - lastEmitTimeRef.current >= EMIT_THROTTLE_MS && socket && roomId) {
-      lastEmitTimeRef.current = now;
-      socket.emit("draw_event", {
-        roomId,
-        points: currentStrokeRef.current,
-        strokeStyle: "#ffffff",
-        lineWidth: 2,
-      });
+    if (activeTool === "pen") {
+      currentStrokeRef.current.push(point);
+
+      if (ctxRef.current && currentStrokeRef.current.length >= 2) {
+        const pts = currentStrokeRef.current.slice(-2);
+        drawSmoothStroke(pts, ctxRef.current, penColor, 2);
+      }
+
+      const now = Date.now();
+      if (now - lastEmitTimeRef.current >= EMIT_THROTTLE_MS && socket && roomId) {
+        lastEmitTimeRef.current = now;
+        socket.emit("draw_event", {
+          roomId,
+          id: currentStrokeIdRef.current,
+          points: currentStrokeRef.current,
+          strokeStyle: penColor,
+          lineWidth: 2,
+        });
+      }
     }
-  }, [isDrawing, activeTool, isPanning, getPointFromEvent, drawSmoothStroke, socket, roomId, lastPanPoint]);
+  }, [isDrawing, activeTool, getPointFromEvent, eraseStrokeAt, penColor, drawSmoothStroke, socket, roomId, isPanning, lastPanPoint]);
 
   const handleMouseUp = useCallback(() => {
-    if (activeTool === "hand") {
+    if (isPanning) {
       setIsPanning(false);
       return;
     }
 
-    if (isDrawing && currentStrokeRef.current.length > 1) {
-      // Save to history for undo
-      const strokeCopy = [...currentStrokeRef.current];
-      strokeHistoryRef.current = strokeHistoryRef.current.slice(0, historyIndexRef.current + 1);
-      strokeHistoryRef.current.push({
-        points: strokeCopy,
-        strokeStyle: "#ffffff",
-        lineWidth: 2,
-      });
-      historyIndexRef.current = strokeHistoryRef.current.length - 1;
+    if (isDrawing && activeTool === "pen" && currentStrokeRef.current.length > 1) {
+      const newStroke = {
+        id: currentStrokeIdRef.current,
+        points: [...currentStrokeRef.current],
+        strokeStyle: penColor,
+        lineWidth: 2
+      };
+      strokesRef.current.push(newStroke);
+      myStrokeIdsRef.current.push(newStroke.id);
+      redoStackRef.current = [];
+      updateUndoRedoState();
     }
-
     setIsDrawing(false);
     currentStrokeRef.current = [];
-  }, [isDrawing, activeTool]);
+    currentStrokeIdRef.current = null;
+  }, [isDrawing, activeTool, penColor, updateUndoRedoState, isPanning]);
 
-  const handlePanStart = useCallback((e) => {
-    if (activeTool !== "hand") return;
-    setIsPanning(true);
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const clientX = e.clientX ?? e.touches?.[0]?.clientX ?? 0;
-    const clientY = e.clientY ?? e.touches?.[0]?.clientY ?? 0;
-    setLastPanPoint({ x: clientX, y: clientY });
-  }, [activeTool]);
-
-  // Clear canvas
-  const handleClear = useCallback(() => {
-    if (!socket || !roomId || !ctxRef.current || !canvasRef.current) return;
-
-    const canvas = canvasRef.current;
-    const dpr = window.devicePixelRatio || 1;
-    const rect = canvas.getBoundingClientRect();
-    const ctx = canvas.getContext("2d");
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    drawGrid(ctx, rect.width, rect.height);
-
-    strokeHistoryRef.current = [];
-    historyIndexRef.current = -1;
-
-    socket.emit("clear_event", { roomId });
-  }, [socket, roomId, drawGrid]);
-
-  // Undo/Redo
   const handleUndo = useCallback(() => {
-    if (historyIndexRef.current < 0 || !ctxRef.current || !canvasRef.current) return;
-
-    // Redraw everything except last stroke
-    const canvas = canvasRef.current;
-    const dpr = window.devicePixelRatio || 1;
-    const rect = canvas.getBoundingClientRect();
-    const ctx = canvas.getContext("2d");
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    drawGrid(ctx, rect.width, rect.height);
-
-    historyIndexRef.current--;
-    for (let i = 0; i <= historyIndexRef.current; i++) {
-      const stroke = strokeHistoryRef.current[i];
-      if (stroke) {
-        drawSmoothStroke(stroke.points, ctx, stroke.strokeStyle, stroke.lineWidth);
-      }
+    const id = myStrokeIdsRef.current.pop();
+    if (!id) return;
+    const stroke = strokesRef.current.find(s => s.id === id);
+    if (stroke) {
+      redoStackRef.current.push(stroke);
+      strokesRef.current = strokesRef.current.filter(s => s.id !== id);
+      redrawCanvas();
+      updateUndoRedoState();
+      if (socket && roomId) socket.emit("erase_stroke", { roomId, strokeId: id });
     }
-  }, [drawGrid, drawSmoothStroke]);
+  }, [redrawCanvas, socket, roomId, updateUndoRedoState]);
 
   const handleRedo = useCallback(() => {
-    if (
-      historyIndexRef.current >= strokeHistoryRef.current.length - 1 ||
-      !ctxRef.current ||
-      !canvasRef.current
-    )
-      return;
-
-    historyIndexRef.current++;
-    const stroke = strokeHistoryRef.current[historyIndexRef.current];
-    if (stroke && ctxRef.current) {
-      drawSmoothStroke(stroke.points, ctxRef.current, stroke.strokeStyle, stroke.lineWidth);
+    const stroke = redoStackRef.current.pop();
+    if (!stroke) return;
+    strokesRef.current.push(stroke);
+    myStrokeIdsRef.current.push(stroke.id);
+    redrawCanvas();
+    updateUndoRedoState();
+    if (socket && roomId) {
+      socket.emit("draw_event", { roomId, id: stroke.id, points: stroke.points, strokeStyle: stroke.strokeStyle, lineWidth: stroke.lineWidth });
     }
-  }, [drawSmoothStroke]);
+  }, [redrawCanvas, socket, roomId, updateUndoRedoState]);
 
-  // Export canvas
+  const handleClear = useCallback(() => {
+    if (!socket || !roomId) return;
+    strokesRef.current = [];
+    myStrokeIdsRef.current = [];
+    redrawCanvas();
+    updateUndoRedoState();
+    socket.emit("clear_event", { roomId });
+  }, [redrawCanvas, socket, roomId, updateUndoRedoState]);
+
   const handleExport = useCallback(() => {
     if (!canvasRef.current) return;
-    const dataURL = canvasRef.current.toDataURL("image/png");
-    const link = document.createElement("a");
-    link.download = `whiteboard-${roomId}-${Date.now()}.png`;
-    link.href = dataURL;
-    link.click();
-  }, [roomId]);
-
-  // Zoom controls
-  const handleZoomIn = useCallback(() => {
-    setZoom((prev) => Math.min(prev + 10, 200));
+    const url = canvasRef.current.toDataURL("image/png");
+    const a = document.createElement("a");
+    a.download = `board-${Date.now()}.png`;
+    a.href = url;
+    a.click();
   }, []);
 
-  const handleZoomOut = useCallback(() => {
-    setZoom((prev) => Math.max(prev - 10, 50));
-  }, []);
+  const handleZoomIn = useCallback(() => setZoom(z => Math.min(500, z + 20)), []);
+  const handleZoomOut = useCallback(() => setZoom(z => Math.max(10, z - 20)), []);
 
   return (
     <div
       style={{
-        width: "100vw",
-        height: "100vh",
-        backgroundColor: "#0f172a",
         display: "flex",
         flexDirection: "column",
-        color: "#e5e7eb",
-        fontFamily: "system-ui, -apple-system, sans-serif",
+        height: "100vh",
+        backgroundColor: colors.uiBg,
+        color: colors.textPrimary,
+        overflow: "hidden",
+        transition: "background-color 0.3s, color 0.3s"
       }}
     >
-      {/* Top Navigation Bar */}
+      {/* Header */}
       <header
         style={{
-          height: 56,
+          height: 60,
+          borderBottom: `1px solid ${colors.uiBorder}`,
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
           padding: "0 24px",
-          backgroundColor: "#030712",
-          borderBottom: "1px solid #1f2937",
+          backgroundColor: colors.uiBg,
+          transition: "background-color 0.3s, border-color 0.3s"
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <button
-            onClick={() => navigate(-1)}
+            onClick={() => navigate("/")}
             style={{
-              background: "transparent",
+              background: "none",
               border: "none",
-              color: "#e5e7eb",
+              color: colors.textSecondary,
               cursor: "pointer",
               fontSize: 20,
-              padding: 8,
-              display: "flex",
-              alignItems: "center",
             }}
           >
             ←
@@ -465,7 +559,7 @@ export default function Whiteboard() {
               margin: 0,
               fontSize: 16,
               fontWeight: 600,
-              color: "#e5e7eb",
+              color: colors.textPrimary,
             }}
           >
             {boardTitle}
@@ -496,7 +590,7 @@ export default function Whiteboard() {
               alignItems: "center",
               gap: 4,
               padding: "4px 8px",
-              backgroundColor: "#1f2937",
+              backgroundColor: colors.buttonBg,
               borderRadius: 20,
               fontSize: 12,
             }}
@@ -508,12 +602,13 @@ export default function Whiteboard() {
                   width: 24,
                   height: 24,
                   borderRadius: "50%",
-                  backgroundColor: "#374151",
+                  backgroundColor: colors.buttonHover,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
                   fontSize: 10,
                   fontWeight: 600,
+                  color: colors.textPrimary
                 }}
               >
                 {init}
@@ -546,16 +641,17 @@ export default function Whiteboard() {
         <aside
           style={{
             width: 56,
-            backgroundColor: "#030712",
-            borderRight: "1px solid #1f2937",
+            backgroundColor: colors.uiBg,
+            borderRight: `1px solid ${colors.uiBorder}`,
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
             padding: "12px 0",
-            gap: 8,
+            gap: 16,
+            transition: "background-color 0.3s, border-color 0.3s"
           }}
         >
-          {/* Pen Tool (Active) */}
+          {/* Pen Tool */}
           <button
             onClick={() => setActiveTool("pen")}
             style={{
@@ -564,7 +660,7 @@ export default function Whiteboard() {
               borderRadius: 8,
               border: "none",
               backgroundColor: activeTool === "pen" ? "#2563eb" : "transparent",
-              color: activeTool === "pen" ? "#ffffff" : "#9ca3af",
+              color: activeTool === "pen" ? "#ffffff" : colors.textSecondary,
               cursor: "pointer",
               display: "flex",
               alignItems: "center",
@@ -576,74 +672,56 @@ export default function Whiteboard() {
             ✏️
           </button>
 
-          {/* Sticky Note */}
+          {/* Eraser Tool */}
           <button
-            onClick={() => setActiveTool("sticky")}
+            onClick={() => setActiveTool("eraser")}
             style={{
               width: 40,
               height: 40,
               borderRadius: 8,
               border: "none",
-              backgroundColor: activeTool === "sticky" ? "#2563eb" : "transparent",
-              color: activeTool === "sticky" ? "#ffffff" : "#9ca3af",
+              backgroundColor: activeTool === "eraser" ? "#2563eb" : "transparent",
+              color: activeTool === "eraser" ? "#ffffff" : colors.textSecondary,
               cursor: "pointer",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               fontSize: 20,
             }}
-            title="Sticky Note"
+            title="Stroke Eraser"
           >
-            📄
+            🧹
           </button>
 
-          {/* Hand Tool (Pan) */}
-          <button
-            onClick={() => setActiveTool("hand")}
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: 8,
-              border: "none",
-              backgroundColor: activeTool === "hand" ? "#2563eb" : "transparent",
-              color: activeTool === "hand" ? "#ffffff" : "#9ca3af",
-              cursor: activeTool === "hand" ? "grab" : "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 20,
-            }}
-            title="Hand (Pan)"
-          >
-            ✋
-          </button>
-
-          {/* Arrow Pointer (Select) */}
-          <button
-            onClick={() => setActiveTool("arrow")}
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: 8,
-              border: "none",
-              backgroundColor: activeTool === "arrow" ? "#2563eb" : "transparent",
-              color: activeTool === "arrow" ? "#ffffff" : "#9ca3af",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 20,
-            }}
-            title="Select"
-          >
-            ➡️
-          </button>
+          {/* Color Picker */}
+          <div style={{ position: "relative", width: 32, height: 32 }}>
+            <input
+              type="color"
+              value={penColor}
+              onChange={(e) => {
+                setPenColor(e.target.value);
+                setActiveTool("pen");
+              }}
+              style={{
+                width: "100%",
+                height: "100%",
+                padding: 0,
+                border: `2px solid ${colors.uiBorder}`,
+                borderRadius: "50%",
+                cursor: "pointer",
+                overflow: "hidden",
+                appearance: "none",
+                backgroundColor: "transparent",
+              }}
+              title="Pen Color"
+            />
+          </div>
 
           <div
             style={{
               width: "80%",
               height: 1,
-              backgroundColor: "#1f2937",
+              backgroundColor: colors.uiBorder,
               margin: "8px 0",
             }}
           />
@@ -651,15 +729,15 @@ export default function Whiteboard() {
           {/* Undo */}
           <button
             onClick={handleUndo}
-            disabled={historyIndexRef.current < 0}
+            disabled={!canUndo}
             style={{
               width: 40,
               height: 40,
               borderRadius: 8,
               border: "none",
               backgroundColor: "transparent",
-              color: historyIndexRef.current >= 0 ? "#9ca3af" : "#475569",
-              cursor: historyIndexRef.current >= 0 ? "pointer" : "not-allowed",
+              color: canUndo ? colors.textPrimary : colors.textSecondary,
+              cursor: canUndo ? "pointer" : "not-allowed",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -673,21 +751,15 @@ export default function Whiteboard() {
           {/* Redo */}
           <button
             onClick={handleRedo}
-            disabled={historyIndexRef.current >= strokeHistoryRef.current.length - 1}
+            disabled={!canRedo}
             style={{
               width: 40,
               height: 40,
               borderRadius: 8,
               border: "none",
               backgroundColor: "transparent",
-              color:
-                historyIndexRef.current < strokeHistoryRef.current.length - 1
-                  ? "#9ca3af"
-                  : "#475569",
-              cursor:
-                historyIndexRef.current < strokeHistoryRef.current.length - 1
-                  ? "pointer"
-                  : "not-allowed",
+              color: canRedo ? colors.textPrimary : colors.textSecondary,
+              cursor: canRedo ? "pointer" : "not-allowed",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -705,37 +777,24 @@ export default function Whiteboard() {
             flex: 1,
             position: "relative",
             overflow: "hidden",
-            backgroundColor: "#0f172a",
+            backgroundColor: colors.background,
+            transition: "background-color 0.3s"
           }}
         >
           <canvas
             ref={canvasRef}
-            onMouseDown={(e) => {
-              if (activeTool === "hand") {
-                handlePanStart(e);
-              } else {
-                handleMouseDown(e);
-              }
-            }}
+            onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
             onMouseLeave={handleMouseUp}
-            onTouchStart={(e) => {
-              if (activeTool === "hand") {
-                handlePanStart(e);
-              } else {
-                handleMouseDown(e);
-              }
-            }}
+            onTouchStart={handleMouseDown}
             onTouchMove={handleMouseMove}
             onTouchEnd={handleMouseUp}
             style={{
               width: "100%",
               height: "100%",
-              cursor: activeTool === "pen" ? "crosshair" : activeTool === "hand" ? "grab" : "default",
+              cursor: isSpacePressed ? "grab" : (activeTool === "pen" ? "crosshair" : "default"),
               touchAction: "none",
-              transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${zoom / 100})`,
-              transformOrigin: "0 0",
             }}
           />
         </div>
@@ -749,8 +808,9 @@ export default function Whiteboard() {
           alignItems: "center",
           justifyContent: "space-between",
           padding: "0 24px",
-          backgroundColor: "#030712",
-          borderTop: "1px solid #1f2937",
+          backgroundColor: colors.uiBg,
+          borderTop: `1px solid ${colors.uiBorder}`,
+          transition: "background-color 0.3s, border-color 0.3s"
         }}
       >
         {/* Zoom Controls */}
@@ -759,8 +819,8 @@ export default function Whiteboard() {
             onClick={handleZoomOut}
             style={{
               background: "transparent",
-              border: "1px solid #374151",
-              color: "#e5e7eb",
+              border: `1px solid ${colors.uiBorder}`,
+              color: colors.textPrimary,
               cursor: "pointer",
               width: 32,
               height: 32,
@@ -773,15 +833,15 @@ export default function Whiteboard() {
           >
             −
           </button>
-          <span style={{ fontSize: 14, color: "#e5e7eb", minWidth: 50, textAlign: "center" }}>
-            {zoom}%
+          <span style={{ fontSize: 14, color: colors.textPrimary, minWidth: 50, textAlign: "center" }}>
+            {Math.round(zoom)}%
           </span>
           <button
             onClick={handleZoomIn}
             style={{
               background: "transparent",
-              border: "1px solid #374151",
-              color: "#e5e7eb",
+              border: `1px solid ${colors.uiBorder}`,
+              color: colors.textPrimary,
               cursor: "pointer",
               width: 32,
               height: 32,
@@ -806,8 +866,8 @@ export default function Whiteboard() {
               gap: 8,
               padding: "8px 16px",
               backgroundColor: "transparent",
-              border: "1px solid #374151",
-              color: "#e5e7eb",
+              border: `1px solid ${colors.uiBorder}`,
+              color: colors.textPrimary,
               borderRadius: 6,
               cursor: "pointer",
               fontSize: 14,
@@ -825,8 +885,8 @@ export default function Whiteboard() {
               gap: 8,
               padding: "8px 16px",
               backgroundColor: "transparent",
-              border: "1px solid #374151",
-              color: isConnected ? "#e5e7eb" : "#6b7280",
+              border: `1px solid ${colors.uiBorder}`,
+              color: isConnected ? colors.textPrimary : colors.textSecondary,
               borderRadius: 6,
               cursor: isConnected ? "pointer" : "not-allowed",
               fontSize: 14,

@@ -194,6 +194,7 @@ io.on("connection", async (socket) => {
 
     // Create optimized draw data with minimal payload
     const drawData = {
+      id: data.id, // Pass through the stroke ID
       points: data.points,
       strokeStyle: data.strokeStyle || "#2d3436",
       lineWidth: data.lineWidth || 3,
@@ -236,6 +237,24 @@ io.on("connection", async (socket) => {
       roomId: data.roomId,
       senderId: socket.id,
       timestamp: Date.now(),
+    });
+  });
+
+  // Handle erase stroke event
+  socket.on("erase_stroke", (data) => {
+    if (!data || !data.roomId || !data.strokeId) return;
+
+    const roomState = getRoomState(data.roomId);
+    roomState.lastActivity = Date.now();
+
+    // Remove stroke from history
+    roomState.strokes = roomState.strokes.filter(s => s.id !== data.strokeId);
+
+    // Broadcast erase event
+    socket.to(data.roomId).emit("erase_stroke", {
+      roomId: data.roomId,
+      strokeId: data.strokeId,
+      senderId: socket.id,
     });
   });
 

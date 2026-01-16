@@ -44,7 +44,7 @@ export default function Register() {
       setIsLoading(false);
     }
   };
-  
+
 
   return (
     <div
