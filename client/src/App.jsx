@@ -11,6 +11,7 @@ import Session from "./pages/Session";
 import Dashboard from "./pages/Dashboard";
 import ProtectedRoute from "./components/ProtectedRoute";
 import WorkspaceLayout from "./components/WorkspaceLayout";
+import InviteHandler from "./components/InviteHandler";
 
 export default function App() {
   return (
@@ -22,6 +23,7 @@ export default function App() {
         {/* Auth routes */}
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/invite/:code" element={<InviteHandler />} />
 
         {/* Workspace routes with sidebar layout */}
         <Route

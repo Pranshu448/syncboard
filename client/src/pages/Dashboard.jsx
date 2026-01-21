@@ -3,6 +3,7 @@ import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
 import { useEffect, useState } from "react";
 import api from "../utils/axios";
+import { getMyTeams } from "../api/teams";
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -18,8 +19,15 @@ export default function Dashboard() {
   const [teams, setTeams] = useState([]);
 
   useEffect(() => {
-    // Load dashboard data
-    // TODO: Replace with actual API calls
+    const fetchData = async () => {
+      try {
+        const teamRes = await getMyTeams();
+        setTeams(teamRes.data || []);
+      } catch (err) {
+        console.error("Failed to load dashboard data", err);
+      }
+    };
+    fetchData();
   }, []);
 
   return (
@@ -629,65 +637,70 @@ export default function Dashboard() {
               overflow: "hidden",
             }}
           >
-            {[
-              { name: "Engineering", initial: "E", members: 12 },
-              { name: "Design", initial: "D", members: 6 },
-              { name: "Marketing", initial: "M", members: 8 },
-            ].map((team, idx) => (
-              <div
-                key={idx}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 12,
-                  padding: "16px 20px",
-                  borderBottom:
-                    idx < 2
-                      ? isDark
-                        ? "1px solid #1f2937"
-                        : "1px solid #e5e7eb"
-                      : "none",
-                }}
-              >
+            {teams.length > 0 ? (
+              teams.slice(0, 3).map((team, idx) => (
                 <div
+                  key={team._id}
                   style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: "50%",
-                    backgroundColor: isDark
-                      ? "rgba(37,99,235,0.2)"
-                      : "rgba(37,99,235,0.1)",
                     display: "flex",
                     alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: 16,
-                    fontWeight: 600,
-                    color: "#2563eb",
+                    gap: 12,
+                    padding: "16px 20px",
+                    borderBottom:
+                      idx < teams.length - 1 && idx < 2
+                        ? isDark
+                          ? "1px solid #1f2937"
+                          : "1px solid #e5e7eb"
+                        : "none",
+                    cursor: "pointer"
                   }}
+                  onClick={() => navigate("/workspace/teams")}
                 >
-                  {team.initial}
-                </div>
-                <div style={{ flex: 1 }}>
                   <div
                     style={{
-                      fontSize: 15,
-                      fontWeight: 500,
-                      marginBottom: 4,
+                      width: 36,
+                      height: 36,
+                      borderRadius: 8,
+                      backgroundColor: isDark ? "#1e293b" : "#e0f2fe",
+                      color: isDark ? "#60a5fa" : "#0284c7",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontWeight: 700,
+                      fontSize: 14,
                     }}
                   >
-                    {team.name}
+                    {team.name ? team.name.charAt(0).toUpperCase() : "T"}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 500, fontSize: 14 }}>
+                      {team.name}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        color: isDark ? "#9ca3af" : "#6b7280",
+                      }}
+                    >
+                      {team.members ? team.members.length : 0} members
+                    </div>
                   </div>
                   <div
                     style={{
-                      fontSize: 13,
-                      color: isDark ? "#9ca3af" : "#6b7280",
+                      width: 8,
+                      height: 8,
+                      borderRadius: "50%",
+                      backgroundColor: "#22c55e",
                     }}
-                  >
-                    {team.members} members
-                  </div>
+                  />
                 </div>
+              ))
+            ) : (
+              <div style={{ padding: "16px 20px", color: isDark ? "#9ca3af" : "#6b7280", fontSize: 13 }}>
+                No teams yet. <Link to="/workspace/teams" style={{ color: "#22d3ee" }}>Create one</Link>
               </div>
-            ))}
+            )}
+
           </div>
           <button
             type="button"
@@ -707,8 +720,8 @@ export default function Dashboard() {
           >
             + Create Team
           </button>
-        </section>
-      </main>
-    </div>
+        </section >
+      </main >
+    </div >
   );
 }

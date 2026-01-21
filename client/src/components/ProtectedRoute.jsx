@@ -8,5 +8,5 @@ export default function ProtectedRoute({ children }) {
     return <div>Loading...</div>; // or spinner
   }
 
-  return user ? children : <Navigate to="/login" />;
+  return user ? children : <Navigate to="/" />;
 }

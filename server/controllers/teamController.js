@@ -18,12 +18,6 @@ exports.createTeam = async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
-    if (user.team) {
-      return res
-        .status(400)
-        .json({ message: "You already belong to a team." });
-    }
-
     const teamName =
       (name && name.trim()) || `${user.username || "My"}'s Team`;
 
@@ -43,7 +37,7 @@ exports.createTeam = async (req, res) => {
       members: [userId],
     });
 
-    user.team = team._id;
+    user.teams.push(team._id);
     await user.save();
 
     res.json({ teamId: team._id, name: team.name, code: team.code });
@@ -73,8 +67,11 @@ exports.joinTeam = async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
-    user.team = team._id;
-    await user.save();
+    // Check if user is already in team (in user.teams)
+    if (!user.teams.includes(team._id)) {
+      user.teams.push(team._id);
+      await user.save();
+    }
 
     if (!team.members.some((m) => m.toString() === userId)) {
       team.members.push(userId);
@@ -89,17 +86,47 @@ exports.joinTeam = async (req, res) => {
 };
 
 // GET /api/teams/me
-exports.getMyTeam = async (req, res) => {
+exports.getMyTeams = async (req, res) => {
   try {
-    const user = await User.findById(req.user).populate("team");
-    if (!user || !user.team) {
-      return res.json(null);
+    const user = await User.findById(req.user).populate({
+      path: "teams",
+      populate: {
+        path: "members",
+        select: "username email",
+      },
+    });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
     }
 
-    const { _id, name, code } = user.team;
-    res.json({ teamId: _id, name, code });
+    res.json(user.teams || []);
   } catch (err) {
-    console.error("getMyTeam error:", err);
+    console.error("getMyTeams error:", err);
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// GET /api/teams/:teamId/members
+exports.getTeamMembers = async (req, res) => {
+  try {
+    const { teamId } = req.params;
+    const team = await Team.findById(teamId).populate(
+      "members",
+      "username email"
+    );
+
+    if (!team) {
+      return res.status(404).json({ message: "Team not found" });
+    }
+
+    // Check if user is a member of this team
+    if (!team.members.some(member => member._id.toString() === req.user)) {
+      return res.status(403).json({ message: "Not authorized to view members of this team" });
+    }
+
+    res.json(team.members);
+  } catch (err) {
+    console.error("getTeamMembers error:", err);
     res.status(500).json({ message: err.message });
   }
 };

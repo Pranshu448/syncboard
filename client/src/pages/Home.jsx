@@ -1,25 +1,13 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
-import { useEffect } from "react";
+
 
 export default function Home() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const { theme } = useTheme();
   const isDark = theme === "dark";
-
-  // Redirect logged-in users to dashboard
-  useEffect(() => {
-    if (user) {
-      navigate("/workspace", { replace: true });
-    }
-  }, [user, navigate]);
-
-  // Show loading or nothing while redirecting
-  if (user) {
-    return null;
-  }
 
   return (
     <div
@@ -47,11 +35,11 @@ export default function Home() {
           top: 0,
           zIndex: 10,
           backgroundColor: isDark
-          ? "rgba(2,6,23,0.7)"
-          : "rgba(255,255,255,0.75)",
+            ? "rgba(2,6,23,0.7)"
+            : "rgba(255,255,255,0.75)",
           boxShadow: isDark
-          ? "none"
-          : "0 4px 20px rgba(15,23,42,0.06)",
+            ? "none"
+            : "0 4px 20px rgba(15,23,42,0.06)",
 
 
         }}
@@ -540,7 +528,7 @@ export default function Home() {
             <h3 style={{ margin: 0, marginBottom: 8, fontSize: 16 }}>
               Centralized conversations
             </h3>
-            <p style={{ margin: 0, fontSize: 14, color: isDark ? "#94a3b8" : "#475569"}}>
+            <p style={{ margin: 0, fontSize: 14, color: isDark ? "#94a3b8" : "#475569" }}>
               Keep project updates, decisions and context in one place instead of
               scattered across tools.
             </p>

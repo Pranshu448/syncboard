@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import { fetchMyTeam } from "../api/teams";
+import { getMyTeams } from "../api/teams";
 import { useTheme } from "../context/ThemeContext";
 
 export default function Profile() {
@@ -19,8 +19,9 @@ export default function Profile() {
 
     const loadTeam = async () => {
       try {
-        const res = await fetchMyTeam();
-        setTeamInfo(res.data);
+        const res = await getMyTeams();
+        // Just show the first team for now in the profile
+        setTeamInfo(res.data[0] || null);
       } catch (err) {
         console.error("Failed to load team info", err);
       }
