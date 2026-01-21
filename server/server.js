@@ -12,6 +12,7 @@ const Message = require("./models/Message");
 const chatRoutes = require("./routes/chatRoutes");
 const userRoutes = require("./routes/userRoutes");
 const teamRoutes = require("./routes/teamRoutes");
+const sessionRoutes = require("./routes/sessionRoutes");
 const socket = require("./socket");
 const User = require("./models/User");
 const cors = require("cors");
@@ -68,36 +69,15 @@ app.use("/api/messages", messageRoutes);
 app.use("/api/chats", chatRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/teams", teamRoutes);
+app.use("/api/sessions", sessionRoutes);
+
+const { whiteboardRooms, getRoomState } = require("./utils/whiteboardState");
 
 // Store online users and room states
 const onlineUsers = new Set();
 
-/* ==================== WHITEBOARD STATE MANAGEMENT ==================== */
-
-// Store active whiteboard rooms and their participants
-const whiteboardRooms = new Map();
-
-// Room state structure:
-// {
-//   roomId: {
-//     participants: Set<socketId>,
-//     strokes: [], // Optional: store recent strokes for late joiners
-//     lastActivity: timestamp
-//   }
-// }
 
 /* ==================== HELPER FUNCTIONS ==================== */
-
-const getRoomState = (roomId) => {
-  if (!whiteboardRooms.has(roomId)) {
-    whiteboardRooms.set(roomId, {
-      participants: new Set(),
-      strokes: [],
-      lastActivity: Date.now(),
-    });
-  }
-  return whiteboardRooms.get(roomId);
-};
 
 const cleanupInactiveRooms = () => {
   const now = Date.now();

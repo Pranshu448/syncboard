@@ -1,5 +1,6 @@
 const Team = require("../models/Team");
 const User = require("../models/User");
+const Chat = require("../models/Chat");
 const crypto = require("crypto");
 
 // Generate short human-readable team code
@@ -40,6 +41,15 @@ exports.createTeam = async (req, res) => {
     user.teams.push(team._id);
     await user.save();
 
+    // Create a group chat for the team
+    await Chat.create({
+      chatName: teamName,
+      isGroup: true,
+      participants: [userId],
+      groupAdmin: userId,
+      team: team._id,
+    });
+
     res.json({ teamId: team._id, name: team.name, code: team.code });
   } catch (err) {
     console.error("createTeam error:", err);
@@ -67,7 +77,7 @@ exports.joinTeam = async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
-    // Check if user is already in team (in user.teams)
+    // Check if user is already in team
     if (!user.teams.includes(team._id)) {
       user.teams.push(team._id);
       await user.save();
@@ -78,9 +88,51 @@ exports.joinTeam = async (req, res) => {
       await team.save();
     }
 
+    // Add user to the team's group chat
+    const chat = await Chat.findOne({ team: team._id });
+    if (chat && !chat.participants.includes(userId)) {
+      chat.participants.push(userId);
+      await chat.save();
+    }
+
     res.json({ teamId: team._id, name: team.name, code: team.code });
   } catch (err) {
     console.error("joinTeam error:", err);
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// DELETE /api/teams/:id
+exports.deleteTeam = async (req, res) => {
+  try {
+    const userId = req.user;
+    const { id } = req.params;
+
+    const team = await Team.findById(id);
+    if (!team) {
+      return res.status(404).json({ message: "Team not found" });
+    }
+
+    // Only creator can delete
+    if (team.createdBy.toString() !== userId) {
+      return res.status(403).json({ message: "Not authorized to delete this team" });
+    }
+
+    // Remove team from all users
+    await User.updateMany(
+      { teams: team._id },
+      { $pull: { teams: team._id } }
+    );
+
+    // Delete associated chat
+    await Chat.deleteMany({ team: team._id });
+
+    // Delete team
+    await Team.findByIdAndDelete(id);
+
+    res.json({ message: "Team deleted successfully" });
+  } catch (err) {
+    console.error("deleteTeam error:", err);
     res.status(500).json({ message: err.message });
   }
 };

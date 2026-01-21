@@ -1,8 +1,23 @@
 import { useTheme } from "../context/ThemeContext";
+import { Moon, Sun, Palette } from "lucide-react";
 
 export default function Settings() {
   const { theme, toggleTheme } = useTheme();
   const isDark = theme === "dark";
+
+  // Theme Colors
+  const colors = {
+    bg: isDark ? "#0a0b10" : "#f8fafc",
+    textMain: isDark ? "#f8fafc" : "#0f172a",
+    textMuted: isDark ? "#94a3b8" : "#64748b",
+    primary: "#00d4ff",
+    secondary: "#7c3aed",
+    border: isDark ? "#1e293b" : "#e2e8f0",
+    cardBg: isDark ? "rgba(30, 41, 59, 0.5)" : "#ffffff",
+    cardBorder: isDark ? "#334155" : "#e2e8f0",
+    toggleBg: isDark ? "#1e293b" : "#e2e8f0",
+    toggleActive: isDark ? "#00d4ff" : "#ffffff"
+  };
 
   return (
     <div
@@ -11,72 +26,95 @@ export default function Settings() {
         display: "flex",
         justifyContent: "center",
         alignItems: "center",
-        padding: 24,
+        padding: 40,
         boxSizing: "border-box",
-        backgroundColor: isDark ? "#020617" : "#f3f4f6",
-        color: isDark ? "#e5e7eb" : "#0f172a",
-        fontFamily:
-          "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+        backgroundColor: colors.bg,
+        color: colors.textMain,
+        fontFamily: "'Inter', sans-serif",
       }}
     >
       <div
         style={{
           width: "100%",
-          maxWidth: 480,
-          borderRadius: 20,
-          padding: 20,
+          maxWidth: 500,
+          borderRadius: 24,
+          padding: 32,
           boxSizing: "border-box",
-          border: isDark
-            ? "1px solid rgba(148,163,184,0.28)"
-            : "1px solid rgba(148,163,184,0.35)",
-          backgroundColor: isDark ? "rgba(15,23,42,0.95)" : "#ffffff",
+          border: `1px solid ${colors.cardBorder}`,
+          backgroundColor: colors.cardBg,
           boxShadow: isDark
-            ? "0 22px 60px rgba(15,23,42,0.85)"
-            : "0 18px 45px rgba(15,23,42,0.18)",
+            ? "0 22px 60px rgba(0, 0, 0, 0.5)"
+            : "0 18px 45px rgba(0, 0, 0, 0.05)",
+          backdropFilter: "blur(12px)"
         }}
       >
-        <h2
-          style={{
-            margin: 0,
-            marginBottom: 8,
-            fontSize: 20,
-          }}
-        >
-          Appearance
-        </h2>
-        <p
-          style={{
-            margin: 0,
-            marginBottom: 16,
-            fontSize: 13,
-            color: isDark ? "#94a3b8" : "#6b7280",
-          }}
-        >
-          Switch between light and dark themes for your workspace.
-        </p>
+        <div style={{ marginBottom: 32 }}>
+          <h2
+            style={{
+              margin: "0 0 12px",
+              fontSize: 24,
+              fontWeight: 700,
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              color: colors.textMain
+            }}
+          >
+            <Palette size={24} color={colors.primary} />
+            Appearance
+          </h2>
+          <p
+            style={{
+              margin: 0,
+              fontSize: 15,
+              color: colors.textMuted,
+              lineHeight: 1.5
+            }}
+          >
+            Customize your workspace appearance. Choose between light and dark themes to suit your environment.
+          </p>
+        </div>
 
         <div
           style={{
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            padding: 12,
-            borderRadius: 14,
-            backgroundColor: isDark ? "#020617" : "#f9fafb",
-            border: "1px solid rgba(148,163,184,0.3)",
+            padding: 20,
+            borderRadius: 16,
+            backgroundColor: isDark ? "#0f172a" : "#f1f5f9",
+            border: `1px solid ${colors.border}`,
           }}
         >
-          <div>
-            <div style={{ fontSize: 14, fontWeight: 500 }}>
-              {isDark ? "Dark mode" : "Light mode"}
-            </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
             <div
               style={{
-                fontSize: 12,
-                color: isDark ? "#9ca3af" : "#6b7280",
+                width: 44,
+                height: 44,
+                borderRadius: 12,
+                backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "white",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                border: `1px solid ${colors.border}`,
+                color: colors.primary
               }}
             >
-              {isDark ? "Best for low‑light environments." : "Clean look for bright spaces."}
+              {isDark ? <Moon size={22} /> : <Sun size={22} />}
+            </div>
+            <div>
+              <div style={{ fontSize: 16, fontWeight: 600 }}>
+                {isDark ? "Dark Mode" : "Light Mode"}
+              </div>
+              <div
+                style={{
+                  fontSize: 13,
+                  color: colors.textMuted,
+                  marginTop: 2
+                }}
+              >
+                {isDark ? "Easy on the eyes" : "Bright and clear"}
+              </div>
             </div>
           </div>
 
@@ -84,19 +122,19 @@ export default function Settings() {
             type="button"
             onClick={toggleTheme}
             style={{
-              width: 70,
-              height: 32,
+              width: 56,
+              height: 30,
               borderRadius: 999,
               border: "none",
               cursor: "pointer",
               padding: 3,
               boxSizing: "border-box",
-              background: isDark
-                ? "linear-gradient(135deg, #2563eb, #4f46e5)"
-                : "linear-gradient(135deg, #e5e7eb, #cbd5f5)",
+              background: isDark ? colors.primary : "#cbd5e1",
               display: "flex",
               alignItems: "center",
               justifyContent: isDark ? "flex-end" : "flex-start",
+              transition: "background 0.3s ease",
+              boxShadow: isDark ? `0 0 15px ${colors.primary}50` : "none"
             }}
           >
             <div
@@ -104,8 +142,8 @@ export default function Settings() {
                 width: 24,
                 height: 24,
                 borderRadius: "50%",
-                backgroundColor: isDark ? "#0f172a" : "#ffffff",
-                boxShadow: "0 2px 6px rgba(15,23,42,0.4)",
+                backgroundColor: "#ffffff",
+                boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
               }}
             />
           </button>

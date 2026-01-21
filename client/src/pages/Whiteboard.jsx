@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useSocket, useSocketStatus } from "../context/SocketContext";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
@@ -36,6 +36,7 @@ export default function Whiteboard() {
   const { theme } = useTheme();
   const isDark = theme === "dark";
   const colors = isDark ? THEME_COLORS.dark : THEME_COLORS.light;
+  const location = useLocation(); // Add hook
 
   const canvasRef = useRef(null);
   const ctxRef = useRef(null);
@@ -43,7 +44,7 @@ export default function Whiteboard() {
   const currentRoomRef = useRef(null);
 
   const [participantCount, setParticipantCount] = useState(1);
-  const [boardTitle, setBoardTitle] = useState("Design Sprint Board");
+  const [boardTitle, setBoardTitle] = useState(location.state?.sessionName || "Design Sprint Board"); // Use state name
   const [activeTool, setActiveTool] = useState("pen");
   const [penColor, setPenColor] = useState(isDark ? "#ffffff" : "#000000");
   const [isDrawing, setIsDrawing] = useState(false);
@@ -543,7 +544,7 @@ export default function Whiteboard() {
       >
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <button
-            onClick={() => navigate("/")}
+            onClick={() => navigate("/workspace/session")}
             style={{
               background: "none",
               border: "none",
@@ -595,25 +596,23 @@ export default function Whiteboard() {
               fontSize: 12,
             }}
           >
-            {userInitials.map((init, idx) => (
-              <div
-                key={idx}
-                style={{
-                  width: 24,
-                  height: 24,
-                  borderRadius: "50%",
-                  backgroundColor: colors.buttonHover,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: 10,
-                  fontWeight: 600,
-                  color: colors.textPrimary
-                }}
-              >
-                {init}
-              </div>
-            ))}
+            {/* Show Current User + placeholder for others count */}
+            <div
+              style={{
+                width: 24,
+                height: 24,
+                borderRadius: "50%",
+                backgroundColor: colors.buttonHover,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 10,
+                fontWeight: 600,
+                color: colors.textPrimary
+              }}
+            >
+              {(user?.username || "U")[0]?.toUpperCase()}
+            </div>
           </div>
 
           <div

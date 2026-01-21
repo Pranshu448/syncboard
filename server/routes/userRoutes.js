@@ -1,10 +1,10 @@
 const express = require("express");
 const router = express.Router();
-const auth = require("../middleware/authMiddleware");
-const { getUsers } = require("../controllers/userController");
+const authMiddleware = require("../middleware/authMiddleware");
+const userController = require("../controllers/userController");
 
-// All users except the current logged-in user
-router.get("/", auth, getUsers);
+// Public & Protected Routes
+router.get("/", authMiddleware, userController.getUsers);
+router.get("/dashboard", authMiddleware, userController.getDashboardStats);
 
 module.exports = router;
-

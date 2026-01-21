@@ -5,15 +5,19 @@ import { useEffect, useState } from "react";
 import api from "../utils/axios";
 import { getMyTeams } from "../api/teams";
 
+import { formatDistanceToNow } from "date-fns";
+
 export default function Dashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { theme } = useTheme();
   const isDark = theme === "dark";
   const [stats, setStats] = useState({
-    activeSessions: 12,
-    teamMembers: 24,
-    messages: 156,
+    activeSessions: 0,
+    teamMembers: 0,
+    messages: 0,
+    sessionsToday: 0,
+    messagesToday: 0,
   });
   const [recentSessions, setRecentSessions] = useState([]);
   const [teams, setTeams] = useState([]);
@@ -21,7 +25,13 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const teamRes = await getMyTeams();
+        const [statsRes, teamRes] = await Promise.all([
+          api.get("/users/dashboard"),
+          getMyTeams()
+        ]);
+
+        setStats(statsRes.data.stats);
+        setRecentSessions(statsRes.data.recentSessions);
         setTeams(teamRes.data || []);
       } catch (err) {
         console.error("Failed to load dashboard data", err);
@@ -40,6 +50,8 @@ export default function Dashboard() {
         backgroundColor: isDark ? "#020617" : "#f9fafb",
         color: isDark ? "#e5e7eb" : "#0f172a",
         overflowY: "auto",
+        overflowX: "hidden",
+        boxSizing: "border-box",
       }}
     >
       {/* Top Header Bar */}
@@ -51,6 +63,7 @@ export default function Dashboard() {
           padding: "16px 32px",
           borderBottom: isDark ? "1px solid #1f2937" : "1px solid #e5e7eb",
           backgroundColor: isDark ? "#030712" : "#ffffff",
+          boxSizing: "border-box",
         }}
       >
         {/* Search Bar */}
@@ -178,6 +191,7 @@ export default function Dashboard() {
           maxWidth: 1400,
           margin: "0 auto",
           width: "100%",
+          boxSizing: "border-box",
         }}
       >
         {/* Welcome Section */}
@@ -348,7 +362,7 @@ export default function Dashboard() {
                   color: "#22c55e",
                 }}
               >
-                +3 today
+                +{stats.sessionsToday} today
               </div>
             </div>
             <div
@@ -448,7 +462,7 @@ export default function Dashboard() {
                   color: "#22c55e",
                 }}
               >
-                +48 today
+                +{stats.messagesToday} today
               </div>
             </div>
             <div
@@ -503,87 +517,69 @@ export default function Dashboard() {
               overflow: "hidden",
             }}
           >
-            {[
-              {
-                name: "Design Sprint Q1",
-                participants: 4,
-                time: "2 min ago",
-                status: "active",
-                color: "#22c55e",
-              },
-              {
-                name: "Product Roadmap",
-                participants: 6,
-                time: "1 hour ago",
-                status: "idle",
-                color: "#facc15",
-              },
-              {
-                name: "Team Standup",
-                participants: 8,
-                time: "Yesterday",
-                status: "completed",
-                color: "#6b7280",
-              },
-            ].map((session, idx) => (
-              <div
-                key={idx}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  padding: "16px 20px",
-                  borderBottom:
-                    idx < 2
-                      ? isDark
-                        ? "1px solid #1f2937"
-                        : "1px solid #e5e7eb"
-                      : "none",
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <div
-                    style={{
-                      width: 12,
-                      height: 12,
-                      borderRadius: "50%",
-                      backgroundColor: session.color,
-                    }}
-                  />
-                  <div>
-                    <div
-                      style={{
-                        fontSize: 15,
-                        fontWeight: 500,
-                        marginBottom: 4,
-                      }}
-                    >
-                      {session.name}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: 13,
-                        color: isDark ? "#9ca3af" : "#6b7280",
-                      }}
-                    >
-                      {session.participants} participants • {session.time}
-                    </div>
-                  </div>
-                </div>
+            {recentSessions.length === 0 ? (
+              <div style={{ padding: "20px", textAlign: "center", color: isDark ? "#9ca3af" : "#6b7280" }}>
+                No recent sessions.
+              </div>
+            ) : (
+              recentSessions.map((session, idx) => (
                 <div
+                  key={idx}
                   style={{
-                    padding: "4px 10px",
-                    borderRadius: 999,
-                    backgroundColor: `${session.color}20`,
-                    color: session.color,
-                    fontSize: 12,
-                    fontWeight: 500,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: "16px 20px",
+                    borderBottom:
+                      idx < 2
+                        ? isDark
+                          ? "1px solid #1f2937"
+                          : "1px solid #e5e7eb"
+                        : "none",
                   }}
                 >
-                  {session.status}
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <div
+                      style={{
+                        width: 12,
+                        height: 12,
+                        borderRadius: "50%",
+                        backgroundColor: "#22c55e",
+                      }}
+                    />
+                    <div>
+                      <div
+                        style={{
+                          fontSize: 15,
+                          fontWeight: 500,
+                          marginBottom: 4,
+                        }}
+                      >
+                        {session.name}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 13,
+                          color: isDark ? "#9ca3af" : "#6b7280",
+                        }}
+                      >
+                        {session.team?.name || "Team"} • {formatDistanceToNow(new Date(session.updatedAt), { addSuffix: true })}
+                      </div>
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      padding: "4px 10px",
+                      borderRadius: 999,
+                      color: "#22c55e",
+                      fontSize: 12,
+                      fontWeight: 500,
+                    }}
+                  >
+                    Active
+                  </div>
                 </div>
-              </div>
-            ))}
+              )))}
           </div>
         </section>
 
