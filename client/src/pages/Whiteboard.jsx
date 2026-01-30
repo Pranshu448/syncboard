@@ -3,6 +3,7 @@ import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useSocket, useSocketStatus } from "../context/SocketContext";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
+import { Pencil, Eraser, Download, Trash2, Undo, Redo, Wifi, MousePointer2, User as UserIcon, X } from "lucide-react";
 
 const THEME_COLORS = {
   dark: {
@@ -42,6 +43,10 @@ export default function Whiteboard() {
   const ctxRef = useRef(null);
   const lastEmitTimeRef = useRef(0);
   const currentRoomRef = useRef(null);
+
+  const [users, setUsers] = useState([]);
+  const [cursors, setCursors] = useState({});
+  const [showUserList, setShowUserList] = useState(false);
 
   const [participantCount, setParticipantCount] = useState(1);
   const [boardTitle, setBoardTitle] = useState(location.state?.sessionName || "Design Sprint Board"); // Use state name
@@ -271,15 +276,37 @@ export default function Whiteboard() {
 
     const handleRoomJoined = (data) => {
       setParticipantCount(data.participantCount || 1);
-      setUserInitials(["JD", "SV", "MJ"].slice(0, data.participantCount || 1));
+      if (data.users) {
+        setUsers(data.users);
+      }
       if (data.recentStrokes) {
         strokesRef.current = data.recentStrokes;
         redrawCanvas();
       }
     };
 
-    const handleUserJoined = (data) => setParticipantCount(data.participantCount);
-    const handleUserLeft = (data) => setParticipantCount(data.participantCount);
+    const handleUserJoined = (data) => {
+      setParticipantCount(data.participantCount);
+      setUsers(prev => {
+        if (prev.some(u => u.socketId === data.socketId)) return prev;
+        return [...prev, {
+          socketId: data.socketId,
+          userId: data.userId,
+          username: data.username,
+          color: data.color
+        }];
+      });
+    };
+
+    const handleUserLeft = (data) => {
+      setParticipantCount(data.participantCount);
+      setUsers(prev => prev.filter(u => u.socketId !== data.socketId));
+      setCursors(prev => {
+        const next = { ...prev };
+        delete next[data.socketId];
+        return next;
+      });
+    };
 
     const handleRemoteDraw = (data) => {
       if (data.senderId === socket.id) return;
@@ -294,6 +321,14 @@ export default function Whiteboard() {
           drawSmoothStroke(data.points, ctxRef.current, data.strokeStyle, data.lineWidth);
         }
       });
+    };
+
+    const handleCursorMove = (data) => {
+      if (data.socketId === socket.id) return;
+      setCursors(prev => ({
+        ...prev,
+        [data.socketId]: { x: data.x, y: data.y, color: users.find(u => u.socketId === data.socketId)?.color || "#ff0000" }
+      }));
     };
 
     const handleEraseStroke = (data) => {
@@ -312,6 +347,7 @@ export default function Whiteboard() {
     socket.on("room_joined", handleRoomJoined);
     socket.on("user_joined_whiteboard", handleUserJoined);
     socket.on("user_left_whiteboard", handleUserLeft);
+    socket.on("user_cursor_move", handleCursorMove);
     socket.on("draw_event", handleRemoteDraw);
     socket.on("clear_event", handleClear);
     socket.on("erase_stroke", handleEraseStroke);
@@ -320,11 +356,12 @@ export default function Whiteboard() {
       socket.off("room_joined", handleRoomJoined);
       socket.off("user_joined_whiteboard", handleUserJoined);
       socket.off("user_left_whiteboard", handleUserLeft);
+      socket.off("user_cursor_move", handleCursorMove);
       socket.off("draw_event", handleRemoteDraw);
       socket.off("clear_event", handleClear);
       socket.off("erase_stroke", handleEraseStroke);
     };
-  }, [socket, redrawCanvas, drawSmoothStroke, updateUndoRedoState]);
+  }, [socket, redrawCanvas, drawSmoothStroke, updateUndoRedoState, users]);
 
   // Helpers
   const getPointFromEvent = useCallback((e) => {
@@ -426,6 +463,22 @@ export default function Whiteboard() {
       return;
     }
 
+    // Emit cursor position
+    const now = Date.now();
+    if (socket && roomId && now - lastEmitTimeRef.current >= EMIT_THROTTLE_MS) {
+      // We can throttle cursor updates slightly less aggressively or same as draw
+      if (!isDrawing || now % 32 < 16) { // example throttle logic
+        const worldPoint = getPointFromEvent(e);
+        if (worldPoint) {
+          socket.volatile.emit("cursor_move", {
+            roomId,
+            x: worldPoint.x,
+            y: worldPoint.y
+          });
+        }
+      }
+    }
+
     if (activeTool === "pen") {
       currentStrokeRef.current.push(point);
 
@@ -434,7 +487,6 @@ export default function Whiteboard() {
         drawSmoothStroke(pts, ctxRef.current, penColor, 2);
       }
 
-      const now = Date.now();
       if (now - lastEmitTimeRef.current >= EMIT_THROTTLE_MS && socket && roomId) {
         lastEmitTimeRef.current = now;
         socket.emit("draw_event", {
@@ -531,6 +583,7 @@ export default function Whiteboard() {
     >
       {/* Header */}
       <header
+        className="p-mobile-2"
         style={{
           height: 60,
           borderBottom: `1px solid ${colors.uiBorder}`,
@@ -567,8 +620,9 @@ export default function Whiteboard() {
           </h1>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, position: "relative" }}>
           <div
+            className="hidden-mobile"
             style={{
               display: "flex",
               alignItems: "center",
@@ -581,56 +635,133 @@ export default function Whiteboard() {
               color: "#ffffff",
             }}
           >
-            <span>📶</span>
+            <Wifi size={14} />
             <span>Connected</span>
           </div>
 
-          <div
+          {/* User List Toggle */}
+          <button
+            onClick={() => setShowUserList(!showUserList)}
             style={{
               display: "flex",
               alignItems: "center",
-              gap: 4,
-              padding: "4px 8px",
-              backgroundColor: colors.buttonBg,
-              borderRadius: 20,
-              fontSize: 12,
+              gap: 8,
+              padding: "4px",
+              background: "none",
+              border: "none",
+              cursor: "pointer",
             }}
           >
-            {/* Show Current User + placeholder for others count */}
+            {/* Current User */}
             <div
               style={{
-                width: 24,
-                height: 24,
+                width: 32,
+                height: 32,
                 borderRadius: "50%",
-                backgroundColor: colors.buttonHover,
+                backgroundColor: colors.buttonBg,
+                border: `2px solid ${colors.uiBorder}`,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                fontSize: 10,
+                fontSize: 12,
                 fontWeight: 600,
                 color: colors.textPrimary
               }}
+              title="You"
             >
               {(user?.username || "U")[0]?.toUpperCase()}
             </div>
-          </div>
 
-          <div
-            style={{
-              width: 32,
-              height: 32,
-              borderRadius: "50%",
-              backgroundColor: "#2563eb",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 14,
-              fontWeight: 600,
-              color: "#ffffff",
-            }}
-          >
-            {participantCount}
-          </div>
+            {/* Count Circle */}
+            <div
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: "50%",
+                backgroundColor: "#2563eb",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 14,
+                fontWeight: 600,
+                color: "#ffffff",
+              }}
+            >
+              {participantCount}
+            </div>
+          </button>
+
+          {/* User List Dropdown */}
+          {showUserList && (
+            <div
+              style={{
+                position: "absolute",
+                top: "100%",
+                right: 0,
+                marginTop: 8,
+                width: 240,
+                backgroundColor: colors.uiBg,
+                border: `1px solid ${colors.uiBorder}`,
+                borderRadius: 12,
+                boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)",
+                zIndex: 50,
+                overflow: "hidden"
+              }}
+            >
+              <div
+                style={{
+                  padding: "12px 16px",
+                  borderBottom: `1px solid ${colors.uiBorder}`,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  fontWeight: 600,
+                  fontSize: 14
+                }}
+              >
+                <span>Active Users ({users.length})</span>
+                <button
+                  onClick={() => setShowUserList(false)}
+                  style={{ background: "none", border: "none", cursor: "pointer", color: colors.textSecondary }}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <div style={{ maxHeight: 300, overflowY: "auto", padding: "8px 0" }}>
+                {users.map((u) => (
+                  <div
+                    key={u.socketId}
+                    style={{
+                      padding: "8px 16px",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 12,
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 28,
+                        height: 28,
+                        borderRadius: "50%",
+                        backgroundColor: u.color || "#ccc",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: 12,
+                        fontWeight: 600,
+                        color: "#fff"
+                      }}
+                    >
+                      {(u.username || "U")[0]?.toUpperCase()}
+                    </div>
+                    <div style={{ fontSize: 14, color: colors.textPrimary }}>
+                      {u.username || "Unknown"} {u.socketId === socket?.id && "(You)"}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </header>
 
@@ -639,13 +770,13 @@ export default function Whiteboard() {
         {/* Left Toolbar */}
         <aside
           style={{
-            width: 56,
+            width: 72, // Slightly wider for better spacing
             backgroundColor: colors.uiBg,
             borderRight: `1px solid ${colors.uiBorder}`,
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
-            padding: "12px 0",
+            padding: "16px 0",
             gap: 16,
             transition: "background-color 0.3s, border-color 0.3s"
           }}
@@ -654,9 +785,9 @@ export default function Whiteboard() {
           <button
             onClick={() => setActiveTool("pen")}
             style={{
-              width: 40,
-              height: 40,
-              borderRadius: 8,
+              width: 48,
+              height: 48,
+              borderRadius: 12,
               border: "none",
               backgroundColor: activeTool === "pen" ? "#2563eb" : "transparent",
               color: activeTool === "pen" ? "#ffffff" : colors.textSecondary,
@@ -664,20 +795,20 @@ export default function Whiteboard() {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              fontSize: 20,
+              transition: "all 0.2s",
             }}
             title="Pen"
           >
-            ✏️
+            <Pencil size={24} />
           </button>
 
           {/* Eraser Tool */}
           <button
             onClick={() => setActiveTool("eraser")}
             style={{
-              width: 40,
-              height: 40,
-              borderRadius: 8,
+              width: 48,
+              height: 48,
+              borderRadius: 12,
               border: "none",
               backgroundColor: activeTool === "eraser" ? "#2563eb" : "transparent",
               color: activeTool === "eraser" ? "#ffffff" : colors.textSecondary,
@@ -685,15 +816,15 @@ export default function Whiteboard() {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              fontSize: 20,
+              transition: "all 0.2s",
             }}
-            title="Stroke Eraser"
+            title="Eraser"
           >
-            🧹
+            <Eraser size={24} />
           </button>
 
           {/* Color Picker */}
-          <div style={{ position: "relative", width: 32, height: 32 }}>
+          <div style={{ position: "relative", width: 36, height: 36 }}>
             <input
               type="color"
               value={penColor}
@@ -718,7 +849,7 @@ export default function Whiteboard() {
 
           <div
             style={{
-              width: "80%",
+              width: "60%",
               height: 1,
               backgroundColor: colors.uiBorder,
               margin: "8px 0",
@@ -740,11 +871,11 @@ export default function Whiteboard() {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              fontSize: 20,
+              transition: "color 0.2s",
             }}
             title="Undo"
           >
-            ↶
+            <Undo size={20} />
           </button>
 
           {/* Redo */}
@@ -762,11 +893,11 @@ export default function Whiteboard() {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              fontSize: 20,
+              transition: "color 0.2s",
             }}
             title="Redo"
           >
-            ↷
+            <Redo size={20} />
           </button>
         </aside>
 
@@ -796,13 +927,52 @@ export default function Whiteboard() {
               touchAction: "none",
             }}
           />
+          {/* Remote Cursors Overlay */}
+          {Object.entries(cursors).map(([sId, cursor]) => {
+            const screenX = cursor.x * (zoom / 100) + panOffset.x;
+            const screenY = cursor.y * (zoom / 100) + panOffset.y;
+            const user = users.find(u => u.socketId === sId);
+            const color = user?.color || "#ff0000";
+
+            return (
+              <div
+                key={sId}
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  top: 0,
+                  transform: `translate(${screenX}px, ${screenY}px)`,
+                  pointerEvents: "none",
+                  transition: "transform 0.1s linear",
+                  zIndex: 10
+                }}
+              >
+                <MousePointer2 size={16} fill={color} color={color} />
+                <div
+                  style={{
+                    marginLeft: 16,
+                    marginTop: 4,
+                    backgroundColor: color,
+                    padding: "2px 6px",
+                    borderRadius: 4,
+                    fontSize: 10,
+                    color: "#fff",
+                    whiteSpace: "nowrap"
+                  }}
+                >
+                  {user?.username || "User"}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
 
       {/* Bottom Control Bar */}
       <footer
+        className="p-mobile-2"
         style={{
-          height: 48,
+          height: 64, // Slightly taller for larger controls
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
@@ -821,9 +991,9 @@ export default function Whiteboard() {
               border: `1px solid ${colors.uiBorder}`,
               color: colors.textPrimary,
               cursor: "pointer",
-              width: 32,
-              height: 32,
-              borderRadius: 6,
+              width: 36,
+              height: 36,
+              borderRadius: 8,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -842,9 +1012,9 @@ export default function Whiteboard() {
               border: `1px solid ${colors.uiBorder}`,
               color: colors.textPrimary,
               cursor: "pointer",
-              width: 32,
-              height: 32,
-              borderRadius: 6,
+              width: 36,
+              height: 36,
+              borderRadius: 8,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -856,24 +1026,25 @@ export default function Whiteboard() {
         </div>
 
         {/* Action Buttons */}
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <button
             onClick={handleExport}
             style={{
               display: "flex",
               alignItems: "center",
-              gap: 8,
-              padding: "8px 16px",
+              justifyContent: "center", // Center icon
+              width: 48, // Square button
+              height: 48,
               backgroundColor: "transparent",
               border: `1px solid ${colors.uiBorder}`,
               color: colors.textPrimary,
-              borderRadius: 6,
+              borderRadius: 12, // More rounded
               cursor: "pointer",
-              fontSize: 14,
+              transition: "background-color 0.2s",
             }}
+            title="Export Board"
           >
-            <span>⬇️</span>
-            <span>Export</span>
+            <Download size={24} />
           </button>
           <button
             onClick={handleClear}
@@ -881,18 +1052,19 @@ export default function Whiteboard() {
             style={{
               display: "flex",
               alignItems: "center",
-              gap: 8,
-              padding: "8px 16px",
+              justifyContent: "center",
+              width: 48,
+              height: 48,
               backgroundColor: "transparent",
               border: `1px solid ${colors.uiBorder}`,
               color: isConnected ? colors.textPrimary : colors.textSecondary,
-              borderRadius: 6,
+              borderRadius: 12,
               cursor: isConnected ? "pointer" : "not-allowed",
-              fontSize: 14,
+              transition: "background-color 0.2s",
             }}
+            title="Clear Board"
           >
-            <span>🗑️</span>
-            <span>Clear</span>
+            <Trash2 size={24} />
           </button>
         </div>
       </footer>

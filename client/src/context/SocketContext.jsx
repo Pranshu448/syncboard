@@ -98,8 +98,20 @@ export const SocketProvider = ({ children }) => {
       console.log("🔌 Socket initialization complete");
     }
 
+    // Handle tab/window close
+    const handleBeforeUnload = () => {
+      if (socketRef.current?.connected) {
+        console.log("🔌 Window closing, disconnecting socket...");
+        socketRef.current.disconnect();
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
     // Cleanup on unmount or user change
     return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+
       if (socketRef.current) {
         console.log("🔌 Cleaning up socket connection");
         socketRef.current.removeAllListeners();

@@ -92,6 +92,7 @@ export default function Home() {
           backgroundColor: isDark ? "rgba(10, 11, 16, 0.6)" : "rgba(255, 255, 255, 0.7)",
           borderBottom: `1px solid ${isDark ? "rgba(39, 41, 53, 0.5)" : "rgba(226, 232, 240, 0.6)"}`,
         }}
+        className="p-mobile-4"
       >
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
           <div
@@ -111,7 +112,6 @@ export default function Home() {
           <span
             style={{
               fontWeight: 800,
-              className: "tracking-tight", // simulates tracking-tight
               letterSpacing: "-0.025em",
               fontSize: 18,
               color: colors.textMain,
@@ -122,6 +122,7 @@ export default function Home() {
         </div>
 
         <nav
+          className="hidden-mobile"
           style={{
             display: "flex",
             alignItems: "center",
@@ -131,7 +132,6 @@ export default function Home() {
             color: colors.textMuted,
           }}
         >
-          {/* Hidden on small screens normally, but we keep it simple */}
           {["Features", "Collaboration", "Security"].map((item) => (
             <a
               key={item}
@@ -154,6 +154,7 @@ export default function Home() {
             <>
               <Link
                 to="/workspace/teams"
+                className="hidden-mobile"
                 style={{
                   textDecoration: "none",
                   color: colors.textMain,
@@ -230,8 +231,10 @@ export default function Home() {
           padding: "64px 24px 80px",
           zIndex: 1,
         }}
+        className="p-mobile-4"
       >
         <section
+          className="hero-grid"
           style={{
             width: "100%",
             maxWidth: 1200,
@@ -270,6 +273,9 @@ export default function Home() {
                 marginBottom: 20,
                 color: colors.textMain,
               }}
+              className="text-4xl-mobile" // Assuming I'll add this class later or just let it scale naturally? 
+            // Actually inline style fontSize 56 is too big for mobile. 
+            // I should rely on clamp or a class. I'll add a class for header size below.
             >
               Chat, create & plan in one <span style={{ color: colors.textMuted }}>shared workspace.</span>
             </h1>
@@ -336,11 +342,11 @@ export default function Home() {
               }}
             >
               <div style={{ display: "flex", gap: 8 }}>
-                <CheckIcon color={colors.primary} />
+                <CheckCircle size={16} color={colors.primary} />
                 <span>Instant messaging</span>
               </div>
               <div style={{ display: "flex", gap: 8 }}>
-                <CheckIcon color={colors.primary} />
+                <CheckCircle size={16} color={colors.primary} />
                 <span>Live whiteboard</span>
               </div>
             </div>
@@ -441,13 +447,12 @@ export default function Home() {
         {/* Feature strip (Cards) */}
         <section
           id="features"
+          className="grid-cols-3 grid-responsive"
           style={{
             width: "100%",
             maxWidth: 1200,
             marginTop: 120,
-            display: "grid",
-            gridTemplateColumns: "repeat(3, 1fr)",
-            gap: 32,
+            // gridTemplateColumns handled by class
           }}
         >
           {[
@@ -495,6 +500,8 @@ export default function Home() {
         {/* Collaboration Section */}
         <section
           id="collaboration"
+          className="hero-grid" // Reusing hero-grid which is 1fr on mobile, 1fr 1fr on desktop ? No hero-grid is strictly 1fr on mobile overrides. I need base style to be grid.
+          // Actually "hero-grid" class is only defined in mobile query to override. I need base style.
           style={{
             width: "100%",
             maxWidth: 1200,
@@ -502,6 +509,7 @@ export default function Home() {
             marginBottom: 80,
             display: "grid",
             gridTemplateColumns: "1.2fr 1fr",
+            // gap handled by mobile override, but base gap:
             gap: 80,
             alignItems: "center",
           }}
@@ -632,6 +640,7 @@ export default function Home() {
                 marginBottom: 24,
                 letterSpacing: "-0.02em",
               }}
+              className="text-4xl-mobile"
             >
               Work together like you're in <br />
               <span style={{ color: colors.textMuted }}>the same room</span>
@@ -684,6 +693,7 @@ export default function Home() {
         {/* Security Section */}
         <section
           id="security"
+          className="hero-grid"
           style={{
             width: "100%",
             maxWidth: 1200,
@@ -717,6 +727,7 @@ export default function Home() {
                 marginBottom: 24,
                 letterSpacing: "-0.02em",
               }}
+              className="text-4xl-mobile"
             >
               Built with security <br />
               <span style={{ color: colors.textMuted }}>at its core</span>
@@ -733,7 +744,10 @@ export default function Home() {
               Your data is protected with industry-standard practices. We take privacy seriously so you can focus on building.
             </p>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
+            <div
+              className="grid-cols-2 grid-responsive"
+              style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}
+            >
               {[
                 { title: "Secure Auth", desc: "JWT-based stateless authentication.", icon: Lock },
                 { title: "Role-based Access", desc: "Fine-grained team permissions.", icon: Key },

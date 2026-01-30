@@ -73,19 +73,22 @@ export default function Session() {
 
   return (
     <div
+      className="p-mobile-4"
       style={{
         height: "100%",
         padding: 32,
-        // backgroundColor/color removed to inherit from WorkspaceLayout (Teams style)
-        // backgroundColor: isDark ? "#0f172a" : "#f8fafc",
-        // color: isDark ? "#e2e8f0" : "#1e293b",
+        backgroundColor: isDark ? "#0b0c15" : "#f8fafc",
+        color: isDark ? "#e2e8f0" : "#1e293b",
         display: "flex",
         flexDirection: "column",
         gap: 24,
       }}
     >
       {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <div
+        className="flex-col-mobile"
+        style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16 }}
+      >
         <div>
           <h1 style={{ fontSize: 24, fontWeight: 700, margin: "0 0 8px" }}>Sessions</h1>
           <p style={{ margin: 0, color: isDark ? "#94a3b8" : "#64748b" }}>
@@ -130,7 +133,7 @@ export default function Session() {
       {/* Content */}
       <div style={{ flex: 1, overflowY: "auto" }}>
         {view === "menu" && (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 20 }}>
+          <div className="grid-responsive">
             {activeSessions.length === 0 ? (
               <div
                 style={{
@@ -149,10 +152,10 @@ export default function Session() {
                 <div
                   key={session._id}
                   style={{
-                    backgroundColor: "#111827",
+                    backgroundColor: isDark ? "rgba(30, 41, 59, 0.5)" : "#ffffff",
                     borderRadius: 16,
                     padding: 24,
-                    border: "1px solid #1f2937",
+                    border: isDark ? "1px solid #1f2937" : "1px solid #e5e7eb",
                     display: "flex",
                     flexDirection: "column",
                     gap: 16,
@@ -214,7 +217,6 @@ export default function Session() {
                         border: "1px solid #374151",
                         backgroundColor: "transparent",
                         color: "#e5e7eb",
-                        fontSize: 13,
                         cursor: "pointer",
                         fontWeight: 600,
                         fontSize: 14,
@@ -251,7 +253,7 @@ export default function Session() {
         )}
 
         {view === "create" && (
-          <div style={{ maxWidth: 480, margin: "40px auto" }}>
+          <div className="w-full-mobile" style={{ maxWidth: 480, margin: "40px auto" }}>
             <h2 style={{ marginBottom: 24 }}>Create New Session</h2>
             <form onSubmit={createSession} style={{ display: "flex", flexDirection: "column", gap: 20 }}>
               <div>
@@ -343,7 +345,7 @@ export default function Session() {
         )}
 
         {view === "join" && (
-          <div style={{ maxWidth: 480, margin: "40px auto" }}>
+          <div className="w-full-mobile" style={{ maxWidth: 480, margin: "40px auto" }}>
             <h2 style={{ marginBottom: 24 }}>Join Existing Session</h2>
             <form onSubmit={joinSession} style={{ display: "flex", flexDirection: "column", gap: 20 }}>
               <div>

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { getMyTeams, createTeam, joinTeam, deleteTeam } from "../api/teams";
 import { useAuth } from "../context/AuthContext";
+import { useSocket } from "../context/SocketContext";
 import api from "../utils/axios";
 import TeamCard from "../components/TeamCard";
 import { useTheme } from "../context/ThemeContext";
@@ -16,7 +17,8 @@ function Modal({ title, onClose, children, isDark }) {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    zIndex: 50
+    zIndex: 50,
+    padding: "16px" // Added padding for mobile safety
   };
 
   const contentStyle = {
@@ -27,7 +29,10 @@ function Modal({ title, onClose, children, isDark }) {
     maxWidth: 400,
     border: isDark ? "1px solid #334155" : "1px solid #e2e8f0",
     color: isDark ? "#f8fafc" : "#0f172a",
-    boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)"
+    boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)",
+    maxHeight: "90vh", // prevent overflow on small vertical screens
+    overflowY: "auto",
+    position: "relative"
   };
 
   return (
@@ -47,6 +52,7 @@ function Modal({ title, onClose, children, isDark }) {
 
 export default function Teams() {
   const { user } = useAuth();
+  const socket = useSocket();
   const { theme } = useTheme();
   const isDark = theme === "dark";
 
@@ -74,6 +80,41 @@ export default function Teams() {
   useEffect(() => {
     loadTeams();
   }, []);
+
+  // Listen for presence updates
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleUserOnline = (userId) => {
+      setTeams((prev) =>
+        prev.map((team) => ({
+          ...team,
+          members: team.members?.map((m) =>
+            String(m._id) === String(userId) ? { ...m, isOnline: true } : m
+          ),
+        }))
+      );
+    };
+
+    const handleUserOffline = (userId) => {
+      setTeams((prev) =>
+        prev.map((team) => ({
+          ...team,
+          members: team.members?.map((m) =>
+            String(m._id) === String(userId) ? { ...m, isOnline: false } : m
+          ),
+        }))
+      );
+    };
+
+    socket.on("user_online", handleUserOnline);
+    socket.on("user_offline", handleUserOffline);
+
+    return () => {
+      socket.off("user_online", handleUserOnline);
+      socket.off("user_offline", handleUserOffline);
+    };
+  }, [socket]);
 
   const loadTeams = async () => {
     try {
@@ -148,16 +189,22 @@ export default function Teams() {
   };
 
   return (
-    <div style={{
-      padding: "32px 40px",
-      height: "100%",
-      overflowY: "auto",
-      boxSizing: "border-box",
-      fontFamily: "'Inter', sans-serif",
-      backgroundColor: colors.bg,
-      color: colors.textMain
-    }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 40 }}>
+    <div
+      className="p-mobile-4"
+      style={{
+        padding: "32px 40px",
+        height: "100%",
+        overflowY: "auto",
+        boxSizing: "border-box",
+        fontFamily: "'Inter', sans-serif",
+        backgroundColor: colors.bg,
+        color: colors.textMain
+      }}
+    >
+      <div
+        className="flex-col-mobile"
+        style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 40, gap: 16 }}
+      >
         <div>
           <h1 style={{ margin: "0 0 8px", fontSize: 32, fontWeight: 800, color: colors.textMain, letterSpacing: "-0.02em" }}>Teams</h1>
           <p style={{ margin: 0, color: colors.textMuted, fontSize: 16 }}>Manage your teams and collaborate with members</p>
@@ -206,7 +253,7 @@ export default function Teams() {
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 24 }}>
+      <div className="grid-responsive">
         {teams.map(team => (
           <TeamCard
             key={team._id}
@@ -368,16 +415,32 @@ export default function Teams() {
             {viewingMembers.members.map(member => (
               <div key={member._id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 0", borderBottom: `1px solid ${colors.border}` }}>
                 <div style={{ display: "flex", alignItems: "center" }}>
-                  <div style={{
-                    width: 40, height: 40, borderRadius: 12, background: isDark ? "rgba(255,255,255,0.05)" : "#f1f5f9",
-                    display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, marginRight: 12,
-                    color: colors.primary, border: `1px solid ${colors.border}`
-                  }}>
-                    {member.username[0].toUpperCase()}
+                  <div style={{ position: "relative" }}>
+                    <div style={{
+                      width: 40, height: 40, borderRadius: 12, background: isDark ? "rgba(255,255,255,0.05)" : "#f1f5f9",
+                      display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, marginRight: 12,
+                      color: colors.primary, border: `1px solid ${colors.border}`
+                    }}>
+                      {member.username[0].toUpperCase()}
+                    </div>
+                    {member.isOnline && (
+                      <div style={{
+                        position: "absolute", bottom: 0, right: 10,
+                        width: 12, height: 12, borderRadius: "50%",
+                        backgroundColor: "#22c55e",
+                        border: `2px solid ${isDark ? "#1e293b" : "#ffffff"}`
+                      }} />
+                    )}
                   </div>
                   <div>
                     <div style={{ fontWeight: 600, fontSize: 15 }}>{member.username}</div>
-                    <div style={{ fontSize: 13, color: colors.textMuted }}>{member.email}</div>
+                    <div style={{ fontSize: 13, color: colors.textMuted }}>
+                      {member.isOnline ? (
+                        <span style={{ color: "#22c55e" }}>Active now</span>
+                      ) : (
+                        member.email
+                      )}
+                    </div>
                   </div>
                 </div>
                 {user?._id !== member._id && (

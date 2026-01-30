@@ -74,6 +74,7 @@ export default function Profile() {
 
   return (
     <div
+      className="p-mobile-4"
       style={{
         height: "100%",
         display: "flex",
@@ -86,6 +87,7 @@ export default function Profile() {
       }}
     >
       <header
+        className="flex-col-mobile"
         style={{
           display: "flex",
           alignItems: "center",
@@ -115,7 +117,7 @@ export default function Profile() {
         >
           {(user.username || "U")[0]?.toUpperCase()}
         </div>
-        <div>
+        <div style={{ textAlign: "left", width: "100%" }}>
           <h1
             style={{
               margin: 0,
@@ -135,7 +137,7 @@ export default function Profile() {
         </div>
       </header>
 
-      <section style={{ maxWidth: 800 }}>
+      <section style={{ maxWidth: 800, width: "100%" }}>
         <h2
           style={{
             fontSize: 18,

@@ -14,7 +14,8 @@ const whiteboardRooms = new Map();
 const getRoomState = (roomId) => {
     if (!whiteboardRooms.has(roomId)) {
         whiteboardRooms.set(roomId, {
-            participants: new Set(),
+            // Map<socketId, { userId, username, color, cursor: {x, y} }>
+            participants: new Map(),
             strokes: [],
             lastActivity: Date.now(),
         });

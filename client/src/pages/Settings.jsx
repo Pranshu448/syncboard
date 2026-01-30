@@ -21,6 +21,7 @@ export default function Settings() {
 
   return (
     <div
+      className="p-mobile-4"
       style={{
         height: "100%",
         display: "flex",
@@ -34,6 +35,7 @@ export default function Settings() {
       }}
     >
       <div
+        className="p-mobile-4"
         style={{
           width: "100%",
           maxWidth: 500,

@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
@@ -10,7 +11,8 @@ import {
   User,
   Settings,
   LogOut,
-  Zap
+  Zap,
+  Menu
 } from "lucide-react";
 
 export default function WorkspaceLayout() {
@@ -19,6 +21,11 @@ export default function WorkspaceLayout() {
   const { theme } = useTheme();
   const isDark = theme === "dark";
   const location = useLocation();
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+  // Close sidebar on route change (mobile)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => setIsSidebarOpen(false), [location.pathname]);
 
   // Color Palette containing the new Cyan
   const colors = {
@@ -27,6 +34,9 @@ export default function WorkspaceLayout() {
     textActive: "#00d4ff",
     textInactive: isDark ? "#94a3b8" : "#64748b",
     hoverBg: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)",
+    bg: isDark ? "#020617" : "#f3f4f6",
+    sidebarBg: isDark ? "#0b0c15" : "#ffffff",
+    border: isDark ? "#1e293b" : "#e2e8f0",
   };
 
   const MenuItem = ({ to, icon: Icon, label, isButton = false, onClick }) => {
@@ -39,8 +49,6 @@ export default function WorkspaceLayout() {
       gap: 12,
       width: "100%",
       padding: "12px 16px",
-      borderRadius: "0 12px 12px 0", // Rounded on right side only for "tab" feel or just full rounded? Image shows active indicator on left.
-      // Actually image shows simple highlighting. Let's go with full rounded for now but add left border indicator if active.
       borderRadius: 8,
       marginBottom: 4,
       cursor: "pointer",
@@ -103,28 +111,49 @@ export default function WorkspaceLayout() {
 
   return (
     <div
+      className="workspace-container"
       style={{
-        display: "flex",
-        height: "100vh",
-        width: "100%",
-        backgroundColor: isDark ? "#020617" : "#f3f4f6",
+        backgroundColor: colors.bg,
         color: isDark ? "#e5e7eb" : "#0f172a",
-        fontFamily: "'Inter', system-ui, sans-serif",
       }}
     >
-      {/* Sidebar */}
-      <aside
+      {/* Mobile Header */}
+      <div
+        className="mobile-header hidden-desktop"
         style={{
-          width: 260,
-          padding: "24px 16px",
-          borderRight: isDark ? "1px solid #1e293b" : "1px solid #e2e8f0",
-          display: "flex",
-          flexDirection: "column",
-          gap: 8,
-          backgroundColor: isDark ? "#0b0c15" : "#ffffff", // Darker sidebar background
+          backgroundColor: colors.sidebarBg,
+          borderBottom: `1px solid ${colors.border}`
         }}
       >
-        {/* Branding */}
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <button
+            onClick={() => setIsSidebarOpen(true)}
+            style={{ background: "transparent", border: "none", color: "inherit", cursor: "pointer", display: "flex" }}
+          >
+            <Menu size={24} />
+          </button>
+          <span style={{ fontWeight: 800, fontSize: 18 }}>Syncboard</span>
+        </div>
+      </div>
+
+      {/* Mobile Overlay */}
+      {isSidebarOpen && (
+        <div
+          className="sidebar-overlay hidden-desktop"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
+      {/* Sidebar */}
+      <aside
+        className={`sidebar ${isSidebarOpen ? "open" : ""}`}
+        style={{
+          backgroundColor: colors.sidebarBg,
+          borderRight: `1px solid ${colors.border}`,
+          padding: "24px 16px",
+        }}
+      >
+        {/* Branding - Hidden on mobile if we want, or keep it. Let's keep it for context inside drawer */}
         <div
           style={{
             display: "flex",
@@ -161,6 +190,20 @@ export default function WorkspaceLayout() {
           >
             Syncboard
           </span>
+
+          {/* Close button for mobile */}
+          <button
+            className="hidden-desktop"
+            onClick={() => setIsSidebarOpen(false)}
+            style={{
+              marginLeft: "auto",
+              background: "transparent",
+              border: "none",
+              color: colors.textInactive
+            }}
+          >
+            X
+          </button>
         </div>
 
         {/* Main Navigation */}
@@ -184,7 +227,7 @@ export default function WorkspaceLayout() {
         <div
           style={{
             height: 1,
-            backgroundColor: isDark ? "#1e293b" : "#e2e8f0",
+            backgroundColor: colors.border,
             margin: "16px 8px",
           }}
         />
@@ -227,12 +270,10 @@ export default function WorkspaceLayout() {
 
       {/* Main area */}
       <main
+        className="main-content"
         style={{
-          flex: 1,
-          backgroundColor: isDark ? "#020617" : "#f9fafb",
+          backgroundColor: colors.bg,
           color: isDark ? "#e5e7eb" : "#0f172a",
-          overflow: "hidden",
-          position: "relative"
         }}
       >
         <Outlet />

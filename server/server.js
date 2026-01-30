@@ -73,9 +73,8 @@ app.use("/api/sessions", sessionRoutes);
 
 const { whiteboardRooms, getRoomState } = require("./utils/whiteboardState");
 
-// Store online users and room states
-const onlineUsers = new Set();
-
+// Track active socket connections per user (Map: userId -> Set of socket IDs)
+const userSockets = new Map();
 
 /* ==================== HELPER FUNCTIONS ==================== */
 
@@ -104,20 +103,44 @@ io.on("connection", async (socket) => {
 
   console.log("User connected:", userId, "socket ID:", socket.id);
 
+  // Track this socket connection for the user
+  if (!userSockets.has(userId)) {
+    userSockets.set(userId, new Set());
+  }
+  userSockets.get(userId).add(socket.id);
+
+  // Mark user as online (only if this is their first connection)
+  const isFirstConnection = userSockets.get(userId).size === 1;
+
   try {
-    await User.findByIdAndUpdate(userId, { isOnline: true });
+    if (isFirstConnection) {
+      await User.findByIdAndUpdate(userId, { isOnline: true });
+      socket.broadcast.emit("user_online", userId);
+      console.log(`✅ User ${userId} is now ONLINE (${userSockets.get(userId).size} connection(s))`);
+    } else {
+      console.log(`🔄 User ${userId} added connection (${userSockets.get(userId).size} total)`);
+    }
   } catch (err) {
     console.error("Failed to mark online:", err);
   }
 
   // Personal room for private emits
   socket.join(userId);
-  socket.broadcast.emit("user_online", userId);
 
   /* ==================== WHITEBOARD SOCKET EVENTS ==================== */
 
+  // Helper: Generate random color
+  const getRandomColor = () => {
+    const colors = [
+      "#ef4444", "#f97316", "#f59e0b", "#84cc16",
+      "#10b981", "#06b6d4", "#3b82f6", "#6366f1",
+      "#8b5cf6", "#d946ef", "#f43f5e"
+    ];
+    return colors[Math.floor(Math.random() * colors.length)];
+  };
+
   // Whiteboard Join Room - Enhanced with state tracking
-  socket.on("join_whiteboard", (roomId) => {
+  socket.on("join_whiteboard", async (roomId) => {
     if (!roomId || typeof roomId !== "string") {
       console.log("❌ Invalid roomId for whiteboard join");
       socket.emit("error", { message: "Invalid room ID" });
@@ -129,27 +152,66 @@ io.on("connection", async (socket) => {
 
     // Track participant in room state
     const roomState = getRoomState(roomId);
-    roomState.participants.add(socket.id);
+
+    // Get user details
+    let username = "User";
+    try {
+      const user = await User.findById(userId);
+      if (user) username = user.username;
+    } catch (err) {
+      console.error("Error fetching user for whiteboard:", err);
+    }
+
+    const userData = {
+      socketId: socket.id,
+      userId,
+      username,
+      color: getRandomColor(),
+      cursor: { x: 0, y: 0 }
+    };
+
+    roomState.participants.set(socket.id, userData);
     roomState.lastActivity = Date.now();
 
     console.log(
-      `✅ User ${userId} joined whiteboard room: ${roomId} (${roomState.participants.size} participants)`
+      `✅ User ${userId} (${username}) joined whiteboard room: ${roomId} (${roomState.participants.size} participants)`
     );
 
-    // Send current participant count to the joining user
+    // Convert Map to Array for sending
+    const usersList = Array.from(roomState.participants.values());
+
+    // Send current state to the joining user
     socket.emit("room_joined", {
       roomId,
       participantCount: roomState.participants.size,
-      // Optional: send recent strokes for synchronization
-      recentStrokes: roomState.strokes.slice(-50), // Last 50 strokes
+      users: usersList,
+      recentStrokes: roomState.strokes.slice(-50),
     });
 
     // Notify others in the room
     socket.to(roomId).emit("user_joined_whiteboard", {
-      userId,
-      roomId,
+      ...userData,
       participantCount: roomState.participants.size,
     });
+  });
+
+  // Handle cursor movement
+  socket.on("cursor_move", (data) => {
+    if (!data || !data.roomId || !data.x || !data.y) return;
+
+    const roomState = whiteboardRooms.get(data.roomId);
+    if (roomState && roomState.participants.has(socket.id)) {
+      const participant = roomState.participants.get(socket.id);
+      participant.cursor = { x: data.x, y: data.y };
+
+      // Broadcast to others (volatile for performance)
+      socket.volatile.to(data.roomId).emit("user_cursor_move", {
+        userId,
+        socketId: socket.id,
+        x: data.x,
+        y: data.y
+      });
+    }
   });
 
   // Handle drawing events - Optimized for multiple users
@@ -258,6 +320,7 @@ io.on("connection", async (socket) => {
       // Notify others
       socket.to(roomId).emit("user_left_whiteboard", {
         userId,
+        socketId: socket.id,
         roomId,
         participantCount: roomState.participants.size,
       });
@@ -303,6 +366,7 @@ io.on("connection", async (socket) => {
 
   /**
    * Handle sending a chat message
+   * Enhanced to mark as delivered when recipient is online
    */
   socket.on("send_message", async ({ chatId, content }) => {
     try {
@@ -310,11 +374,16 @@ io.on("connection", async (socket) => {
       const chat = await Chat.findById(chatId);
       if (!chat) return;
 
+      // Check if any recipient is online
+      const recipients = chat.participants.filter(uid => uid.toString() !== senderId);
+      const hasOnlineRecipient = recipients.some(uid => userSockets.has(uid.toString()));
+
+      // Create message with appropriate initial status
       const message = await Message.create({
         chat: chatId,
         sender: senderId,
         content,
-        status: "sent",
+        status: hasOnlineRecipient ? "delivered" : "sent",
       });
 
       // Update unread counts - ONLY for receivers (not sender)
@@ -338,12 +407,71 @@ io.on("connection", async (socket) => {
             chatId,
             sender: senderId,
             content,
+            status: message.status,
             createdAt: message.createdAt,
           });
         }
       });
+
+      // If marked as delivered, notify sender
+      if (hasOnlineRecipient) {
+        socket.emit("message_status_update", {
+          messageIds: [message._id],
+          chatId,
+          status: "delivered"
+        });
+      }
     } catch (err) {
       console.error("Socket send_message error:", err);
+    }
+  });
+
+  /**
+   * Mark all messages in a chat as read when user opens it
+   */
+  socket.on("mark_chat_as_read", async ({ chatId }) => {
+    try {
+      // Find all unread messages in this chat that were sent by others
+      const messagesToMarkRead = await Message.find({
+        chat: chatId,
+        sender: { $ne: userId },
+        status: { $in: ["sent", "delivered"] }
+      });
+
+      if (messagesToMarkRead.length === 0) return;
+
+      // Mark them as read
+      await Message.updateMany(
+        {
+          chat: chatId,
+          sender: { $ne: userId },
+          status: { $in: ["sent", "delivered"] }
+        },
+        { status: "read" }
+      );
+
+      console.log(`✓✓ User ${userId} marked ${messagesToMarkRead.length} messages as read in chat ${chatId}`);
+
+      // Notify each sender that their message(s) were read
+      const senderIds = new Set();
+      messagesToMarkRead.forEach(msg => {
+        senderIds.add(msg.sender.toString());
+      });
+
+      senderIds.forEach(senderId => {
+        // Get all message IDs from this sender that were just marked read
+        const msgIds = messagesToMarkRead
+          .filter(m => m.sender.toString() === senderId)
+          .map(m => m._id);
+
+        io.to(senderId).emit("message_status_update", {
+          messageIds: msgIds,
+          chatId,
+          status: "read"
+        });
+      });
+    } catch (err) {
+      console.error("Failed to mark chat as read:", err);
     }
   });
 
@@ -351,7 +479,7 @@ io.on("connection", async (socket) => {
 
   /**
    * Handle user disconnection
-   * Enhanced to clean up whiteboard rooms
+   * Enhanced with multi-session tracking and grace period
    */
   socket.on("disconnect", async () => {
     console.log("User disconnected:", socket.id);
@@ -364,6 +492,7 @@ io.on("connection", async (socket) => {
         // Notify others in the room
         socket.to(roomId).emit("user_left_whiteboard", {
           userId,
+          socketId: socket.id,
           roomId,
           participantCount: roomState.participants.size,
         });
@@ -376,11 +505,34 @@ io.on("connection", async (socket) => {
       }
     }
 
-    try {
-      await User.findByIdAndUpdate(userId, { isOnline: false });
-      socket.broadcast.emit("user_offline", userId);
-    } catch (err) {
-      console.error("Failed to mark offline:", err);
+    // Remove this socket from user's active connections
+    const userSocketSet = userSockets.get(userId);
+    if (userSocketSet) {
+      userSocketSet.delete(socket.id);
+
+      console.log(`🔌 Socket ${socket.id} disconnected. User ${userId} has ${userSocketSet.size} remaining connection(s)`);
+
+      // If user has no more active connections, mark them offline after grace period  
+      if (userSocketSet.size === 0) {
+        // Clean up the empty set
+        userSockets.delete(userId);
+
+        // Grace period: wait 2 seconds before marking offline (handles quick reconnects)
+        setTimeout(async () => {
+          // Check again if user reconnected during grace period
+          if (!userSockets.has(userId)) {
+            try {
+              await User.findByIdAndUpdate(userId, { isOnline: false });
+              io.emit("user_offline", userId);
+              console.log(`❌ User ${userId} is now OFFLINE (all connections closed)`);
+            } catch (err) {
+              console.error("Failed to mark offline:", err);
+            }
+          } else {
+            console.log(`✅ User ${userId} reconnected during grace period, staying online`);
+          }
+        }, 2000);
+      }
     }
   });
 });
