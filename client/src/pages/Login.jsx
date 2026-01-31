@@ -40,7 +40,13 @@ export default function Login() {
       // After login, land on dashboard
       navigate("/workspace");
     } catch (err) {
-      setError(err.response?.data?.msg || "Login failed");
+      console.error("LOGIN ERROR:", err.response?.data || err.message);
+      setError(
+        err.response?.data?.msg ||
+        err.response?.data?.message ||
+        (err.message === "Network Error" ? "Unable to connect to server. Please try again later." : err.message) ||
+        "Login failed"
+      );
     } finally {
       setIsLoading(false);
     }

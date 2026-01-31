@@ -21,31 +21,47 @@ const cors = require("cors");
 const app = express();
 
 // CORS Configuration - Production Ready & Fixed
-const allowedOrigins = [
-  "http://localhost:5173",
-  "http://localhost:3000",
-  "https://syncboard-sigma.vercel.app",
-];
+const getAllowedOrigins = () => {
+  const defaultOrigins = [
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://localhost:3000",
+    "https://syncboard-sigma.vercel.app",
+    "https://syncboard-jirc.onrender.com"
+  ];
 
-// Enhanced CORS configuration
+  if (process.env.ALLOWED_ORIGINS) {
+    const envOrigins = process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim());
+    return [...defaultOrigins, ...envOrigins];
+  }
+
+  return defaultOrigins;
+};
+
+const allowedOrigins = getAllowedOrigins();
+
+// Shared CORS Origin Check Function
+const checkOrigin = (origin, callback) => {
+  // Allow requests with no origin (mobile apps, Postman, curl, server-to-server)
+  if (!origin) return callback(null, true);
+
+  // Check exact matches
+  if (allowedOrigins.includes(origin)) {
+    return callback(null, true);
+  }
+
+  // Allow Vercel preview deployments (syncboard-sigma-*.vercel.app)
+  if (origin.match(/^https:\/\/syncboard-sigma.*\.vercel\.app$/)) {
+    return callback(null, true);
+  }
+
+  console.log("❌ Blocked by CORS:", origin);
+  return callback(null, false);
+};
+
+// Enhanced CORS configuration for Express
 const corsOptions = {
-  origin: function (origin, callback) {
-    // Allow requests with no origin (mobile apps, Postman, curl, server-to-server)
-    if (!origin) return callback(null, true);
-
-    // Check exact matches
-    if (allowedOrigins.includes(origin)) {
-      return callback(null, true);
-    }
-
-    // Allow Vercel preview deployments (syncboard-sigma-*.vercel.app)
-    if (origin.match(/^https:\/\/syncboard-sigma.*\.vercel\.app$/)) {
-      return callback(null, true);
-    }
-
-    console.log("❌ Blocked by CORS:", origin);
-    return callback(null, false);
-  },
+  origin: checkOrigin,
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
   allowedHeaders: [
@@ -76,19 +92,7 @@ const server = http.createServer(app);
 // Socket.IO with matching CORS configuration
 const io = new Server(server, {
   cors: {
-    origin: function (origin, callback) {
-      if (!origin) return callback(null, true);
-
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
-
-      if (origin && origin.match(/^https:\/\/syncboard-sigma.*\.vercel\.app$/)) {
-        return callback(null, true);
-      }
-
-      callback(new Error("Not allowed by CORS"));
-    },
+    origin: checkOrigin,
     credentials: true,
     methods: ["GET", "POST"],
   },

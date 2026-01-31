@@ -54,8 +54,13 @@ export default function Register() {
         navigate("/workspace");
       }
     } catch (err) {
-      console.error("REGISTER ERROR:", err.response?.data);
-      setError(err.response?.data?.msg || err.response?.data?.message || "Registration failed");
+      console.error("REGISTER ERROR:", err.response?.data || err.message);
+      setError(
+        err.response?.data?.msg ||
+        err.response?.data?.message ||
+        (err.message === "Network Error" ? "Unable to connect to server. Please try again later." : err.message) ||
+        "Registration failed"
+      );
     } finally {
       setIsLoading(false);
     }
