@@ -19,7 +19,7 @@ const User = require("./models/User");
 const cors = require("cors");
 
 const app = express();
-
+console.log("bjkbkjbkn")
 // CORS Configuration - Production Ready & Fixed
 const allowedOrigins = [
   "http://localhost:5173",
@@ -44,7 +44,7 @@ const corsOptions = {
     }
 
     console.log("❌ Blocked by CORS:", origin);
-    callback(new Error("Not allowed by CORS"));
+    return callback(null, false);
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
