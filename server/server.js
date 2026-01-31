@@ -46,8 +46,6 @@ app.use(
   })
 );
 
-app.options("*", cors());
-
 // Serve static files
 app.use("/public", express.static(path.join(__dirname, "public")));
 
