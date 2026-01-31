@@ -20,10 +20,33 @@ const cors = require("cors");
 
 const app = express();
 
-app.use(cors({
-  origin: true,
-  credentials: true,
-}));
+// CORS Configuration - Production Ready
+const allowedOrigins = [
+  "http://localhost:5173",
+  "http://localhost:3000",
+  "https://syncboard-sigma.vercel.app",
+];
+
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      // Allow requests with no origin (like mobile apps, Postman, curl)
+      if (!origin) return callback(null, true);
+
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        console.log("❌ Blocked by CORS:", origin);
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
+
+app.options("*", cors());
 
 // Serve static files
 app.use("/public", express.static(path.join(__dirname, "public")));
@@ -32,8 +55,9 @@ const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: true,
+    origin: allowedOrigins,
     credentials: true,
+    methods: ["GET", "POST"],
   },
   // Optimize for real-time whiteboard performance
   transports: ["websocket", "polling"],
