@@ -42,10 +42,10 @@ exports.getMyChats = async (req, res) => {
     const chats = await Chat.find({
       participants: { $elemMatch: { $eq: userId } },
     })
-      .populate("participants", "username email isOnline")
+      .populate("participants", "username email isOnline profilePicture")
       .populate({
         path: "lastMessage",
-        populate: { path: "sender", select: "username" },
+        populate: { path: "sender", select: "username profilePicture" },
       })
       .sort({ updatedAt: -1 });
 

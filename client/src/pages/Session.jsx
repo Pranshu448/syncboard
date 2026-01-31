@@ -163,7 +163,7 @@ export default function Session() {
                 >
                   <div>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                      <h3 style={{ margin: "0 0 4px", fontSize: 16, fontWeight: 600, color: "#f3f4f6" }}>{session.name}</h3>
+                      <h3 style={{ margin: "0 0 4px", fontSize: 16, fontWeight: 600, color: isDark ? "#f3f4f6" : "#1e293b" }}>{session.name}</h3>
                       <span
                         style={{
                           fontSize: 10,
@@ -178,9 +178,36 @@ export default function Session() {
                         {session.team?.name || "Team Session"}
                       </span>
                     </div>
-                    <p style={{ margin: 0, fontSize: 12, color: "#9ca3af" }}>
-                      Created by {session.createdBy?.username || "Unknown"}
-                    </p>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
+                      <div
+                        style={{
+                          width: 20,
+                          height: 20,
+                          borderRadius: "50%",
+                          overflow: "hidden",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          background: isDark ? "#334155" : "#e2e8f0",
+                          color: isDark ? "#fff" : "#64748b",
+                          fontSize: 10,
+                          fontWeight: 700
+                        }}
+                      >
+                        {session.createdBy?.profilePicture ? (
+                          <img
+                            src={`${import.meta.env.VITE_API_URL || "http://localhost:3000"}${session.createdBy.profilePicture}`}
+                            alt={session.createdBy.username}
+                            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                          />
+                        ) : (
+                          (session.createdBy?.username || "U")[0]?.toUpperCase()
+                        )}
+                      </div>
+                      <p style={{ margin: 0, fontSize: 12, color: isDark ? "#9ca3af" : "#64748b" }}>
+                        Created by {session.createdBy?.username || "Unknown"}
+                      </p>
+                    </div>
                   </div>
 
                   <div
@@ -197,7 +224,7 @@ export default function Session() {
                         width: 8,
                         height: 8,
                         borderRadius: "50%",
-                        backgroundColor: session.activeParticipants > 0 ? "#22c55e" : "#94a3b8",
+                        backgroundColor: session.activeParticipants > 0 ? "#22c55e" : (isDark ? "#94a3b8" : "#cbd5e1"),
                       }}
                     />
                     {session.activeParticipants > 0
@@ -214,9 +241,9 @@ export default function Session() {
                         flex: 1,
                         padding: "8px",
                         borderRadius: 8,
-                        border: "1px solid #374151",
+                        border: isDark ? "1px solid #374151" : "1px solid #cbd5e1",
                         backgroundColor: "transparent",
-                        color: "#e5e7eb",
+                        color: isDark ? "#e5e7eb" : "#334155",
                         cursor: "pointer",
                         fontWeight: 600,
                         fontSize: 14,
@@ -233,9 +260,9 @@ export default function Session() {
                       style={{
                         padding: "8px 12px",
                         borderRadius: 8,
-                        border: "1px solid #374151",
+                        border: isDark ? "1px solid #374151" : "1px solid #cbd5e1",
                         background: "transparent",
-                        color: "#e5e7eb",
+                        color: isDark ? "#e5e7eb" : "#334155",
                         cursor: "pointer",
                         display: "flex",
                         alignItems: "center",

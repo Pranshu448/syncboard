@@ -7,10 +7,10 @@ import { Pencil, Eraser, Download, Trash2, Undo, Redo, Wifi, MousePointer2, User
 
 const THEME_COLORS = {
   dark: {
-    background: "#0f172a",
-    grid: "#1e293b",
-    uiBg: "#030712",
-    uiBorder: "#1f2937",
+    background: "#050505", // Very dark, almost black
+    grid: "#1a1a1a",       // Subtle grid
+    uiBg: "#09090b",
+    uiBorder: "#27272a",
     textPrimary: "#e5e7eb",
     textSecondary: "#9ca3af",
     buttonBg: "#1f2937",
@@ -628,15 +628,11 @@ export default function Whiteboard() {
               alignItems: "center",
               gap: 8,
               padding: "6px 12px",
-              backgroundColor: "#22c55e",
-              borderRadius: 20,
-              fontSize: 13,
-              fontWeight: 500,
-              color: "#ffffff",
+              // backgroundColor: "#22c55e", 
+              // Removed visible tag as requested, keeping structure if needed or just empty
+              display: "none"
             }}
           >
-            <Wifi size={14} />
-            <span>Connected</span>
           </div>
 
           {/* User List Toggle */}

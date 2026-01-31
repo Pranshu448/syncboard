@@ -37,7 +37,7 @@ exports.getTeamSessions = async (req, res) => {
         // Fetch sessions sorted by newest first
         const sessions = await Session.find({ team: teamId })
             .sort({ createdAt: -1 })
-            .populate("createdBy", "username");
+            .populate("createdBy", "username profilePicture");
 
         // Enhance with live participant count
         const sessionsWithStats = sessions.map((session) => {
@@ -63,7 +63,7 @@ exports.getMySessions = async (req, res) => {
 
         const sessions = await Session.find({ team: { $in: user.teams } })
             .sort({ createdAt: -1 })
-            .populate("createdBy", "username")
+            .populate("createdBy", "username profilePicture")
             .populate("team", "name");
 
         const sessionsWithStats = sessions.map((session) => {

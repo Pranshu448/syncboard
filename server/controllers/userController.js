@@ -2,6 +2,8 @@ const User = require("../models/User");
 const Session = require("../models/Session");
 const Team = require("../models/Team");
 const Message = require("../models/Message");
+const path = require("path");
+const fs = require("fs");
 
 // Get all users the current user can see in "Team" view
 exports.getUsers = async (req, res) => {
@@ -16,7 +18,7 @@ exports.getUsers = async (req, res) => {
       ? { _id: { $ne: currentUserId }, team: me.team }
       : { _id: { $ne: currentUserId } };
 
-    const users = await User.find(query, "username email isOnline").sort({
+    const users = await User.find(query, "username email isOnline profilePicture").sort({
       username: 1,
     });
 
@@ -79,3 +81,37 @@ exports.getDashboardStats = async (req, res) => {
   }
 };
 
+// @desc    Upload profile picture
+// @route   POST /api/users/profile-picture
+// @access  Private
+exports.uploadProfilePicture = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ msg: "No file uploaded" });
+    }
+
+    const userId = req.user;
+    // Normalized path (using forward slashes for URL compatibility)
+    const filePath = "/public/uploads/profiles/" + req.file.filename;
+
+    // Find user to get old profile picture
+    const user = await User.findById(userId);
+
+    // Delete old profile picture if it exists and is local
+    if (user.profilePicture && user.profilePicture.startsWith("/public/")) {
+      const oldPath = path.join(__dirname, "..", user.profilePicture);
+      if (fs.existsSync(oldPath)) {
+        fs.unlinkSync(oldPath);
+      }
+    }
+
+    // Update user with new path
+    user.profilePicture = filePath;
+    await user.save();
+
+    res.json({ profilePicture: filePath });
+  } catch (err) {
+    console.error("UPLOAD PROFILE PICTURE ERROR:", err);
+    res.status(500).send("Server Error");
+  }
+};

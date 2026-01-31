@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { getMyTeams } from "../api/teams";
+import { uploadProfilePicture } from "../api/users";
 import { useTheme } from "../context/ThemeContext";
-import { User, Mail, Save, Loader2 } from "lucide-react";
+import { User, Mail, Save, Loader2, Upload } from "lucide-react";
 
 export default function Profile() {
   const { user } = useAuth();
@@ -42,7 +43,28 @@ export default function Profile() {
       }
     };
     loadTeam();
+    loadTeam();
   }, [user]);
+
+  const handleFileChange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append("profilePicture", file);
+
+    try {
+      const res = await uploadProfilePicture(formData);
+      // Update local user state if possible, or reload
+      // Ideally we should update the context. For now, forcing a reload or relying on next fetch.
+      // But we can manually update the DOM or local state if we had it.
+      // Easiest way to reflect change:
+      window.location.reload();
+    } catch (err) {
+      console.error("Failed to upload profile picture", err);
+      alert("Failed to upload profile picture");
+    }
+  };
 
   const saveBio = async () => {
     if (!user) return;
@@ -97,25 +119,45 @@ export default function Profile() {
           paddingBottom: 32,
         }}
       >
-        <div
-          style={{
-            width: 96,
-            height: 96,
-            borderRadius: 32,
-            border: `2px solid ${colors.border}`,
-            background: isDark
-              ? "radial-gradient(circle at 30% 0, rgba(99,102,241,0.3), rgba(2,6,23,1))"
-              : "radial-gradient(circle at 30% 0, rgba(99,102,241,0.2), #ffffff)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: 36,
-            fontWeight: 800,
-            color: colors.primary,
-            boxShadow: `0 0 40px ${colors.primary}20`
-          }}
-        >
-          {(user.username || "U")[0]?.toUpperCase()}
+        <div style={{ position: "relative" }}>
+          <div
+            onClick={() => document.getElementById("profile-upload").click()}
+            style={{
+              width: 96,
+              height: 96,
+              borderRadius: 32,
+              border: `2px solid ${colors.border}`,
+              background: isDark
+                ? "radial-gradient(circle at 30% 0, rgba(99,102,241,0.3), rgba(2,6,23,1))"
+                : "radial-gradient(circle at 30% 0, rgba(99,102,241,0.2), #ffffff)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 36,
+              fontWeight: 800,
+              color: colors.primary,
+              boxShadow: `0 0 40px ${colors.primary}20`,
+              cursor: "pointer",
+              overflow: "hidden",
+            }}
+          >
+            {user.profilePicture ? (
+              <img
+                src={`${import.meta.env.VITE_API_URL || "http://localhost:3000"}${user.profilePicture}`}
+                alt="Profile"
+                style={{ width: "100%", height: "100%", objectFit: "cover" }}
+              />
+            ) : (
+              (user.username || "U")[0]?.toUpperCase()
+            )}
+          </div>
+          <input
+            type="file"
+            id="profile-upload"
+            accept="image/*"
+            style={{ display: "none" }}
+            onChange={handleFileChange}
+          />
         </div>
         <div style={{ textAlign: "left", width: "100%" }}>
           <h1

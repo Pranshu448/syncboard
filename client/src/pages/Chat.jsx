@@ -31,6 +31,7 @@ export default function Chat() {
   const [message, setMessage] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const messagesEndRef = useRef(null);
+  const [tooltipId, setTooltipId] = useState(null);
 
   // Theme Colors - Updated for Premium Look
   const colors = {
@@ -353,14 +354,7 @@ export default function Chat() {
           }}
         >
           <h2 className="text-gradient-primary" style={{ margin: 0, fontSize: isMobile ? 20 : 24, fontWeight: 700 }}>Messages</h2>
-          <button style={{
-            background: isDark ? "rgba(255,255,255,0.05)" : "#f1f5f9",
-            border: "none", borderRadius: "50%", width: 32, height: 32,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            cursor: "pointer", color: colors.textMain
-          }}>
-            <Plus size={18} />
-          </button>
+          {/* Plus button removed */}
         </div>
 
         {/* Search Bar (Visual) */}
@@ -443,9 +437,18 @@ export default function Chat() {
                     background: isGroup ? "linear-gradient(135deg, #a855f7, #6366f1)" : "linear-gradient(135deg, #0cebeb, #20e3b2, #29ffc6)", // distinct gradients
                     display: "flex", alignItems: "center", justifyContent: "center",
                     color: "#fff", fontWeight: 700, fontSize: isMobile ? 16 : 18,
-                    textShadow: "0 2px 4px rgba(0,0,0,0.1)"
+                    textShadow: "0 2px 4px rgba(0,0,0,0.1)",
+                    overflow: "hidden"
                   }}>
-                    {displayName[0]?.toUpperCase()}
+                    {!isGroup && otherUser?.profilePicture ? (
+                      <img
+                        src={`${import.meta.env.VITE_API_URL || "http://localhost:3000"}${otherUser.profilePicture}`}
+                        alt={displayName}
+                        style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                      />
+                    ) : (
+                      displayName[0]?.toUpperCase()
+                    )}
                   </div>
                   {isOnline && (
                     <div style={{
@@ -533,13 +536,22 @@ export default function Chat() {
                     width: isMobile ? 36 : 40, height: isMobile ? 36 : 40, borderRadius: 12,
                     background: activeChat.isGroup ? "#a855f7" : "#00d4ff",
                     display: "flex", alignItems: "center", justifyContent: "center",
-                    color: "#fff", fontWeight: 700
+                    color: "#fff", fontWeight: 700,
+                    overflow: "hidden"
                   }}>
-                    {(
-                      activeChat.isGroup
-                        ? activeChat.chatName
-                        : activeChat.participants?.find((p) => String(p._id) !== myId)?.username
-                    )?.[0]?.toUpperCase() || "C"}
+                    {!activeChat.isGroup && activeChat.participants?.find((p) => String(p._id) !== myId)?.profilePicture ? (
+                      <img
+                        src={`${import.meta.env.VITE_API_URL || "http://localhost:3000"}${activeChat.participants?.find((p) => String(p._id) !== myId)?.profilePicture}`}
+                        alt="Header Profile"
+                        style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                      />
+                    ) : (
+                      (
+                        activeChat.isGroup
+                          ? activeChat.chatName
+                          : activeChat.participants?.find((p) => String(p._id) !== myId)?.username
+                      )?.[0]?.toUpperCase() || "C"
+                    )}
                   </div>
                   {activeChat.participants?.find((p) => String(p._id) !== myId)?.isOnline && !activeChat.isGroup && (
                     <div style={{
@@ -597,15 +609,59 @@ export default function Chat() {
                     }}
                   >
                     {!isMe && (
-                      <div style={{ width: 28, height: 28, flexShrink: 0 }}>
+                      <div style={{ width: 28, height: 28, flexShrink: 0, position: "relative" }}>
                         {showAvatar && (
+                          <div
+                            style={{
+                              width: 28, height: 28, borderRadius: 10,
+                              background: "#334155", color: "#fff",
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                              fontSize: 12, fontWeight: 700,
+                              overflow: "hidden",
+                              cursor: "pointer"
+                            }}
+                            onClick={(e) => {
+                              if (isMobile) return;
+                              e.stopPropagation();
+                              setTooltipId(prev => prev === (msg._id || i) ? null : (msg._id || i));
+                            }}
+                            onTouchStart={(e) => {
+                              if (!isMobile) return;
+                              e.stopPropagation();
+                              setTooltipId(msg._id || i);
+                            }}
+                            onTouchEnd={(e) => {
+                              if (!isMobile) return;
+                              setTooltipId(null);
+                            }}
+                          >
+                            {activeChat.participants?.find(p => String(p._id) === String(senderId))?.profilePicture ? (
+                              <img
+                                src={`${import.meta.env.VITE_API_URL || "http://localhost:3000"}${activeChat.participants?.find(p => String(p._id) === String(senderId))?.profilePicture}`}
+                                alt="Msg Sender"
+                                style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                              />
+                            ) : (
+                              activeChat.participants?.find(p => String(p._id) === String(senderId))?.username?.[0]?.toUpperCase()
+                            )}
+                          </div>
+                        )}
+                        {showAvatar && tooltipId === (msg._id || i) && (
                           <div style={{
-                            width: 28, height: 28, borderRadius: 10,
-                            background: "#334155", color: "#fff",
-                            display: "flex", alignItems: "center", justifyContent: "center",
-                            fontSize: 12, fontWeight: 700
+                            position: "absolute",
+                            bottom: "100%",
+                            left: "0",
+                            marginBottom: "6px",
+                            padding: "4px 8px",
+                            background: "#000",
+                            color: "#fff",
+                            fontSize: "12px",
+                            borderRadius: "4px",
+                            zIndex: 100,
+                            whiteSpace: "nowrap",
+                            pointerEvents: "none"
                           }}>
-                            {activeChat.participants?.find(p => String(p._id) === String(senderId))?.username?.[0]?.toUpperCase()}
+                            {activeChat.participants?.find(p => String(p._id) === String(senderId))?.username || "User"}
                           </div>
                         )}
                       </div>

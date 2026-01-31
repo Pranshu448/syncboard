@@ -37,8 +37,8 @@ export default function Login() {
       // save user + token in AuthContext
       login(res.data);
 
-      // After login, land on teams
-      navigate("/workspace/teams");
+      // After login, land on dashboard
+      navigate("/workspace");
     } catch (err) {
       setError(err.response?.data?.msg || "Login failed");
     } finally {

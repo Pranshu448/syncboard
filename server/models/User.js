@@ -29,6 +29,10 @@ const userSchema = new mongoose.Schema(
         ref: "Team",
       },
     ],
+    profilePicture: {
+      type: String,
+      default: "",
+    },
   },
   { timestamps: true }
 );

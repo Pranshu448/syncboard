@@ -1,6 +1,7 @@
 require("dotenv").config({ path: __dirname + "/.env" });
 
 const express = require("express");
+const path = require("path");
 const connectDB = require("./config/db");
 const authRoutes = require("./routes/authRoutes");
 const messageRoutes = require("./routes/messageRoutes");
@@ -24,11 +25,14 @@ app.use(cors({
   credentials: true,
 }));
 
+// Serve static files
+app.use("/public", express.static(path.join(__dirname, "public")));
+
 const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: process.env.CLIENT_URL || "http://localhost:5173",
+    origin: true,
     credentials: true,
   },
   // Optimize for real-time whiteboard performance
@@ -155,9 +159,13 @@ io.on("connection", async (socket) => {
 
     // Get user details
     let username = "User";
+    let profilePicture = "";
     try {
       const user = await User.findById(userId);
-      if (user) username = user.username;
+      if (user) {
+        username = user.username;
+        profilePicture = user.profilePicture;
+      }
     } catch (err) {
       console.error("Error fetching user for whiteboard:", err);
     }
@@ -166,6 +174,7 @@ io.on("connection", async (socket) => {
       socketId: socket.id,
       userId,
       username,
+      profilePicture,
       color: getRandomColor(),
       cursor: { x: 0, y: 0 }
     };
@@ -537,7 +546,7 @@ io.on("connection", async (socket) => {
   });
 });
 
-const PORT = 3000;
-server.listen(PORT, () => {
-  console.log(`Server is listening on Port ${PORT}`);
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
