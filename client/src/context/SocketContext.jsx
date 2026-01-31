@@ -24,7 +24,7 @@ export const SocketProvider = ({ children }) => {
 
     // Only create socket if it doesn't exist
     if (!socketRef.current) {
-      const serverUrl = import.meta.env.VITE_SERVER_URL || "http://localhost:3000";
+      const serverUrl = import.meta.env.VITE_API_URL || "http://localhost:3000";
 
       socketRef.current = io(serverUrl, {
         auth: {
