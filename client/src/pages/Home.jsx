@@ -919,6 +919,7 @@ export default function Home() {
             </p>
 
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
+
               <Link
                 to={user ? "/workspace/teams" : "/register"}
                 style={{

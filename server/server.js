@@ -20,40 +20,75 @@ const cors = require("cors");
 
 const app = express();
 
-// CORS Configuration - Production Ready
+// CORS Configuration - Production Ready & Fixed
 const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:3000",
   "https://syncboard-sigma.vercel.app",
 ];
 
-app.use(
-  cors({
-    origin: function (origin, callback) {
-      // Allow requests with no origin (like mobile apps, Postman, curl)
-      if (!origin) return callback(null, true);
+// Enhanced CORS configuration
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (mobile apps, Postman, curl, server-to-server)
+    if (!origin) return callback(null, true);
 
-      if (allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        console.log("❌ Blocked by CORS:", origin);
-        callback(new Error("Not allowed by CORS"));
-      }
-    },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  })
-);
+    // Check exact matches
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    // Allow Vercel preview deployments (syncboard-sigma-*.vercel.app)
+    if (origin.match(/^https:\/\/syncboard-sigma.*\.vercel\.app$/)) {
+      return callback(null, true);
+    }
+
+    console.log("❌ Blocked by CORS:", origin);
+    callback(new Error("Not allowed by CORS"));
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+  allowedHeaders: [
+    "Content-Type", 
+    "Authorization",
+    "X-Requested-With",
+    "Accept",
+    "Origin"
+  ],
+  exposedHeaders: ["Content-Range", "X-Content-Range"],
+  maxAge: 600, // Cache preflight requests for 10 minutes
+  preflightContinue: false,
+  optionsSuccessStatus: 204
+};
+
+// Apply CORS middleware FIRST - before any other middleware
+// The cors() middleware automatically handles OPTIONS preflight requests
+app.use(cors(corsOptions));
+
+// Parse JSON bodies - AFTER CORS
+app.use(express.json());
 
 // Serve static files
 app.use("/public", express.static(path.join(__dirname, "public")));
 
 const server = http.createServer(app);
 
+// Socket.IO with matching CORS configuration
 const io = new Server(server, {
   cors: {
-    origin: allowedOrigins,
+    origin: function (origin, callback) {
+      if (!origin) return callback(null, true);
+      
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      
+      if (origin && origin.match(/^https:\/\/syncboard-sigma.*\.vercel\.app$/)) {
+        return callback(null, true);
+      }
+      
+      callback(new Error("Not allowed by CORS"));
+    },
     credentials: true,
     methods: ["GET", "POST"],
   },
@@ -77,25 +112,62 @@ const io = new Server(server, {
 socket.init(io);
 io.use(socketAuth);
 
-app.use(express.json());
+// Connect to database
 connectDB();
 
-// Good for error handling
+// Request logging middleware (for debugging)
 app.use((req, res, next) => {
-  console.log(req.method, req.url);
+  console.log(`${req.method} ${req.url} - Origin: ${req.headers.origin || 'none'}`);
   next();
 });
 
+// Health check endpoints
 app.get("/", (req, res) => {
-  res.send("server is running");
+  res.json({ 
+    status: "running",
+    message: "SyncBoard Server",
+    timestamp: new Date().toISOString()
+  });
 });
 
+app.get("/health", (req, res) => {
+  res.json({ status: "ok" });
+});
+
+// API Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/messages", messageRoutes);
 app.use("/api/chats", chatRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/teams", teamRoutes);
 app.use("/api/sessions", sessionRoutes);
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ 
+    error: "Not Found",
+    path: req.url,
+    method: req.method
+  });
+});
+
+// Global error handling middleware
+app.use((err, req, res, next) => {
+  console.error("Error:", err.message);
+  
+  // CORS errors
+  if (err.message === "Not allowed by CORS") {
+    return res.status(403).json({ 
+      error: "CORS Error",
+      message: "Origin not allowed" 
+    });
+  }
+  
+  res.status(500).json({ 
+    error: "Internal Server Error",
+    message: process.env.NODE_ENV === 'production' ? 'Something went wrong' : err.message
+  });
+});
 
 const { whiteboardRooms, getRoomState } = require("./utils/whiteboardState");
 
