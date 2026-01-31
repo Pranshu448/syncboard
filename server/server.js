@@ -27,7 +27,7 @@ const getAllowedOrigins = () => {
     "http://localhost:5174",
     "http://localhost:3000",
     "https://syncboard-sigma.vercel.app",
-    "https://syncboard-jirc.onrender.com"
+    "https://syncboard-jlrc.onrender.com"
   ];
 
   if (process.env.ALLOWED_ORIGINS) {
