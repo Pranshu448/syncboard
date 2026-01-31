@@ -19,7 +19,7 @@ const User = require("./models/User");
 const cors = require("cors");
 
 const app = express();
-console.log("bjkbkjbkn")
+
 // CORS Configuration - Production Ready & Fixed
 const allowedOrigins = [
   "http://localhost:5173",
@@ -49,7 +49,7 @@ const corsOptions = {
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
   allowedHeaders: [
-    "Content-Type", 
+    "Content-Type",
     "Authorization",
     "X-Requested-With",
     "Accept",
@@ -78,15 +78,15 @@ const io = new Server(server, {
   cors: {
     origin: function (origin, callback) {
       if (!origin) return callback(null, true);
-      
+
       if (allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
-      
+
       if (origin && origin.match(/^https:\/\/syncboard-sigma.*\.vercel\.app$/)) {
         return callback(null, true);
       }
-      
+
       callback(new Error("Not allowed by CORS"));
     },
     credentials: true,
@@ -123,7 +123,7 @@ app.use((req, res, next) => {
 
 // Health check endpoints
 app.get("/", (req, res) => {
-  res.json({ 
+  res.json({
     status: "running",
     message: "SyncBoard Server",
     timestamp: new Date().toISOString()
@@ -144,7 +144,7 @@ app.use("/api/sessions", sessionRoutes);
 
 // 404 handler
 app.use((req, res) => {
-  res.status(404).json({ 
+  res.status(404).json({
     error: "Not Found",
     path: req.url,
     method: req.method
@@ -154,16 +154,16 @@ app.use((req, res) => {
 // Global error handling middleware
 app.use((err, req, res, next) => {
   console.error("Error:", err.message);
-  
+
   // CORS errors
   if (err.message === "Not allowed by CORS") {
-    return res.status(403).json({ 
+    return res.status(403).json({
       error: "CORS Error",
-      message: "Origin not allowed" 
+      message: "Origin not allowed"
     });
   }
-  
-  res.status(500).json({ 
+
+  res.status(500).json({
     error: "Internal Server Error",
     message: process.env.NODE_ENV === 'production' ? 'Something went wrong' : err.message
   });
